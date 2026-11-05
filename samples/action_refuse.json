@@ -1,0 +1,15 @@
+// 62 EUR : au dessus de la borne d'escalade (50) -> REFUSE.
+// Aucun checkout PayPal ne sera créé, même en insistant.
+// POST /api/actions
+{
+  "mandate_id": "REMPLACER_PAR_UN_MANDAT_ID",
+  "merchant": "TechStore SAS",
+  "merchant_country": "FR",
+  "amount_cents": 6200,
+  "currency": "EUR",
+  "category": "electronics",
+  "delivery_days": 4,
+  "description": "Casque audio sans fil — édition limitée",
+  "kind": "purchase",
+  "idempotency_key": "demo-refuse-001"
+}

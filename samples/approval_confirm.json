@@ -1,0 +1,6 @@
+// Confirmation humaine d'une escalade.
+// POST /api/approvals/{id}/confirm  (ou /deny)
+{
+  "decided_by": "Camille Renard",
+  "note": "Vérifié : c'est bien le casque demandé."
+}

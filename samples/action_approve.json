@@ -1,0 +1,14 @@
+// Dépense conforme et sous le seuil automatique -> APPROVE
+// POST /api/actions
+{
+  "mandate_id": "REMPLACER_PAR_UN_MANDAT_ID",
+  "merchant": "TechStore SAS",
+  "merchant_country": "FR",
+  "amount_cents": 3800,
+  "currency": "EUR",
+  "category": "electronics",
+  "delivery_days": 4,
+  "description": "Casque audio sans fil",
+  "kind": "purchase",
+  "idempotency_key": "demo-approve-001"
+}

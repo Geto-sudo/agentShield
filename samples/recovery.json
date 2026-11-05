@@ -1,0 +1,9 @@
+// Instruction d'un sinistre « action rogue ».
+// POST /api/recovery/simulate
+//
+// {}                              -> instruit le plus ancien sinistre ouvert
+// { "incident_id": "…" }          -> instruit un sinistre précis
+// { "agent_id": "…" }             -> crée puis instruit un nouveau scénario rogue
+{
+  "agent_id": "REMPLACER_PAR_UN_AGENT_ID"
+}

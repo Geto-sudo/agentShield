@@ -1,0 +1,952 @@
+openapi: 3.1.0
+info:
+  title: AgentShield API
+  version: 0.1.0
+  description: |
+    Garde-fou de dépenses PayPal pour agents IA — prototype Sandbox
+    (PayPal AI Hackathon 2026). Toutes les sommes sont des entiers de centimes.
+    Données simulées, aucun argent réel. Le front est développé séparément.
+  license:
+    name: MIT
+servers:
+  - url: http://127.0.0.1:8080
+    description: Développement local
+tags:
+  - name: Santé
+  - name: Agents
+  - name: Mandats
+  - name: Actions
+  - name: Approbations
+  - name: PayPal
+  - name: Wallet
+  - name: Audit
+  - name: Récupération
+
+paths:
+  /api/health:
+    get:
+      tags: [Santé]
+      summary: État du service et modes actifs
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /api/dashboard:
+    get:
+      tags: [Santé]
+      summary: Agrégats pour l'écran d'accueil
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: Liste des agents avec leur wallet
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentList" }
+    post:
+      tags: [Agents]
+      summary: Crée un agent et son wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAgent" }
+      responses:
+        "200":
+          description: Créé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent: { $ref: "#/components/schemas/Agent" }
+                  audit: { $ref: "#/components/schemas/AuditProof" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/mandates:
+    get:
+      tags: [Mandats]
+      summary: Liste des mandats
+      parameters:
+        - name: agent_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandates:
+                    type: array
+                    items: { $ref: "#/components/schemas/Mandate" }
+    post:
+      tags: [Mandats]
+      summary: Crée un mandat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateMandate" }
+      responses:
+        "200":
+          description: Créé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandate: { $ref: "#/components/schemas/Mandate" }
+                  audit: { $ref: "#/components/schemas/AuditProof" }
+                  thresholds: { $ref: "#/components/schemas/Thresholds" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/mandates/{id}:
+    get:
+      tags: [Mandats]
+      summary: Détail d'un mandat et budget consommé
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandate: { $ref: "#/components/schemas/Mandate" }
+                  committed_cents: { type: integer }
+                  remaining_cents: { type: integer }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/actions:
+    get:
+      tags: [Actions]
+      summary: Historique des actions
+      parameters:
+        - { name: agent_id, in: query, schema: { type: string, format: uuid } }
+        - { name: mandate_id, in: query, schema: { type: string, format: uuid } }
+        - { name: decision, in: query, schema: { $ref: "#/components/schemas/Decision" } }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Action" }
+                  count: { type: integer }
+    post:
+      tags: [Actions]
+      summary: Propose une action — déclenche la décision du garde-fou
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProposedAction" }
+      responses:
+        "200":
+          description: Décision rendue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProposalOutcome" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/actions/{id}:
+    get:
+      tags: [Actions]
+      summary: Détail d'une action, de son mandat, de son approbation et de sa commande
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/actions/{id}/paypal/order:
+    post:
+      tags: [PayPal]
+      summary: Crée le checkout Sandbox d'une action approuvée
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Commande créée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: "#/components/schemas/SandboxOrder" }
+                  action: { $ref: "#/components/schemas/Action" }
+                  mode: { type: string, enum: [mock, live-sandbox] }
+                  notice: { type: string }
+        "403": { $ref: "#/components/responses/Denied" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/approvals:
+    get:
+      tags: [Approbations]
+      summary: Escalades en attente ou tranchées
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, confirmed, denied, expired] }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvals:
+                    type: array
+                    items: { $ref: "#/components/schemas/Approval" }
+                  count: { type: integer }
+
+  /api/approvals/{id}/confirm:
+    post:
+      tags: [Approbations]
+      summary: Confirmation explicite du propriétaire
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DecideApproval" }
+      responses:
+        "200":
+          description: Confirmée
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/approvals/{id}/deny:
+    post:
+      tags: [Approbations]
+      summary: Refus du propriétaire
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DecideApproval" }
+      responses:
+        "200":
+          description: Refusée
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/paypal/orders:
+    get:
+      tags: [PayPal]
+      summary: Commandes Sandbox
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items: { $ref: "#/components/schemas/SandboxOrder" }
+                  mode: { type: string }
+
+  /api/paypal/orders/{order_id}/capture:
+    post:
+      tags: [PayPal]
+      summary: Capture une commande Sandbox et met à jour le wallet
+      description: |
+        `order_id` est le `paypal_order_id` (ex. `MOCK-ORDER-…`), pas l'identifiant interne.
+      parameters:
+        - { name: order_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Capturée
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/PayPalError" }
+
+  /api/wallet/{agent_id}:
+    get:
+      tags: [Wallet]
+      summary: Solde, prime détaillée et journal
+      parameters:
+        - { name: agent_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallet: { $ref: "#/components/schemas/Wallet" }
+                  quote: { $ref: "#/components/schemas/PriceQuote" }
+                  ledger:
+                    type: array
+                    items: { $ref: "#/components/schemas/LedgerEntry" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/wallet/{agent_id}/ledger:
+    get:
+      tags: [Wallet]
+      summary: Journal du wallet
+      parameters:
+        - { name: agent_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/LedgerEntry" }
+
+  /api/wallet/{agent_id}/quote:
+    get:
+      tags: [Wallet]
+      summary: Prime simulée décomposée
+      parameters:
+        - { name: agent_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallet: { $ref: "#/components/schemas/Wallet" }
+                  quote: { $ref: "#/components/schemas/PriceQuote" }
+
+  /api/wallet/{agent_id}/topup:
+    post:
+      tags: [Wallet]
+      summary: Crée un checkout de rechargement du wallet
+      parameters:
+        - { name: agent_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_cents]
+              properties:
+                amount_cents: { type: integer, minimum: 1, maximum: 100000 }
+      responses:
+        "200":
+          description: Commande créée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: "#/components/schemas/SandboxOrder" }
+                  notice: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/wallet/reserve:
+    get:
+      tags: [Wallet]
+      summary: Réserve commune locale
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance_cents: { type: integer }
+                  ledger:
+                    type: array
+                    items: { type: object }
+
+  /api/audit:
+    get:
+      tags: [Audit]
+      summary: Entrées du journal chaîné
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 200 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEntry" }
+                  count: { type: integer }
+                  algorithm: { type: string }
+
+  /api/audit/verify:
+    get:
+      tags: [Audit]
+      summary: Recalcule et vérifie toute la chaîne
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chain: { $ref: "#/components/schemas/ChainStatus" }
+    post:
+      tags: [Audit]
+      summary: Idem en POST
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chain: { $ref: "#/components/schemas/ChainStatus" }
+
+  /api/incidents:
+    get:
+      tags: [Récupération]
+      summary: Sinistres simulés
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, under_review, resolved, rejected] }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incidents:
+                    type: array
+                    items: { $ref: "#/components/schemas/Incident" }
+                  count: { type: integer }
+
+  /api/payouts:
+    get:
+      tags: [Récupération]
+      summary: Payouts Sandbox émis
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payouts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Payout" }
+                  mode: { type: string }
+                  notice: { type: string }
+
+  /api/recovery/simulate:
+    post:
+      tags: [Récupération]
+      summary: Instruit un sinistre et émet un payout si justifié
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                incident_id: { type: string, format: uuid }
+                agent_id: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Verdict rendu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outcome: { $ref: "#/components/schemas/RecoveryOutcome" }
+                  notice: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  responses:
+    BadRequest:
+      description: Requête invalide
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Ressource inconnue
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Denied:
+      description: Refusé par le garde-fou
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: État incompatible
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PayPalError:
+      description: Erreur de la passerelle PayPal
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                [bad_request, not_found, guardrail_denied, conflict,
+                 paypal_error, database_error, internal_error]
+            message: { type: string }
+
+    Decision:
+      type: string
+      enum: [APPROVE, ESCALATE, REFUSE]
+
+    RiskBand:
+      type: string
+      enum: [low, moderate, high, critical]
+
+    AuditProof:
+      type: object
+      properties:
+        seq: { type: integer }
+        hash: { type: string }
+        chain_valid: { type: boolean }
+
+    Thresholds:
+      type: object
+      properties:
+        auto_approve_max_cents: { type: integer }
+        escalate_until_cents: { type: integer }
+
+    Health:
+      type: object
+      properties:
+        status: { type: string }
+        service: { type: string }
+        version: { type: string }
+        time: { type: string, format: date-time }
+        modes:
+          type: object
+          properties:
+            paypal: { type: string, enum: [mock, live-sandbox] }
+            expert: { type: string, enum: [openai, deterministic-fallback] }
+        notice: { type: string }
+
+    Agent:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        owner: { type: string }
+        purpose: { type: string }
+        status: { type: string, enum: [active, paused] }
+        created_at: { type: string, format: date-time }
+
+    AgentList:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            type: object
+            properties:
+              agent: { $ref: "#/components/schemas/Agent" }
+              wallet:
+                oneOf:
+                  - { $ref: "#/components/schemas/Wallet" }
+                  - { type: "null" }
+
+    CreateAgent:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        owner: { type: string }
+        purpose: { type: string }
+
+    Mandate:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        owner_name: { type: string }
+        intent: { type: string }
+        category: { type: string }
+        currency: { type: string, enum: [EUR, USD] }
+        max_total_cents: { type: integer }
+        per_txn_max_cents: { type: integer }
+        auto_approve_max_cents: { type: integer }
+        escalate_until_cents: { type: integer }
+        allowed_merchants:
+          type: array
+          items: { type: string }
+        blocked_merchants:
+          type: array
+          items: { type: string }
+        allowed_countries:
+          type: array
+          items: { type: string }
+        max_delivery_days: { type: integer }
+        valid_from: { type: string, format: date-time }
+        valid_until: { type: string, format: date-time }
+        status: { type: string, enum: [active, revoked, expired] }
+        created_at: { type: string, format: date-time }
+
+    CreateMandate:
+      type: object
+      required: [agent_id, owner_name, intent, category, max_total_cents]
+      properties:
+        agent_id: { type: string, format: uuid }
+        owner_name: { type: string }
+        intent: { type: string }
+        category: { type: string }
+        max_total_cents: { type: integer, minimum: 1 }
+        currency: { type: string, enum: [EUR, USD] }
+        per_txn_max_cents: { type: integer }
+        auto_approve_max_cents: { type: integer }
+        escalate_until_cents: { type: integer }
+        allowed_merchants:
+          type: array
+          items: { type: string }
+        blocked_merchants:
+          type: array
+          items: { type: string }
+        allowed_countries:
+          type: array
+          items: { type: string }
+        max_delivery_days: { type: integer, minimum: 0 }
+        valid_days: { type: integer, minimum: 1, maximum: 365, default: 30 }
+
+    ProposedAction:
+      type: object
+      required: [mandate_id, merchant, amount_cents, category]
+      properties:
+        mandate_id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [purchase, subscription, payout, refund]
+          default: purchase
+        merchant: { type: string }
+        merchant_country: { type: string }
+        amount_cents: { type: integer }
+        currency: { type: string, enum: [EUR, USD] }
+        category: { type: string }
+        delivery_days: { type: integer }
+        description: { type: string }
+        idempotency_key: { type: string }
+        occurred_at: { type: string, format: date-time }
+        metadata: { type: object }
+
+    RuleCheck:
+      type: object
+      properties:
+        code: { type: string }
+        label: { type: string }
+        severity: { type: string, enum: [strict, soft] }
+        passed: { type: boolean }
+        detail: { type: string }
+
+    RiskFactor:
+      type: object
+      properties:
+        code: { type: string }
+        label: { type: string }
+        points: { type: integer }
+
+    Action:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        mandate_id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        kind: { type: string }
+        merchant: { type: string }
+        merchant_country: { type: string, nullable: true }
+        amount_cents: { type: integer }
+        currency: { type: string }
+        category: { type: string }
+        delivery_days: { type: integer, nullable: true }
+        description: { type: string }
+        idempotency_key: { type: string, nullable: true }
+        raw_log: { type: object }
+        decision: { $ref: "#/components/schemas/Decision" }
+        risk_score: { type: integer, minimum: 0, maximum: 100 }
+        risk_band: { $ref: "#/components/schemas/RiskBand" }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/RuleCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        explanation: { type: string }
+        approval_id: { type: string, format: uuid, nullable: true }
+        order_id: { type: string, format: uuid, nullable: true }
+        settled: { type: boolean }
+        audit_hash: { type: string }
+        created_at: { type: string, format: date-time }
+
+    ProposalOutcome:
+      type: object
+      properties:
+        action: { $ref: "#/components/schemas/Action" }
+        mandate: { $ref: "#/components/schemas/Mandate" }
+        agent: { $ref: "#/components/schemas/Agent" }
+        decision: { $ref: "#/components/schemas/Decision" }
+        risk:
+          type: object
+          properties:
+            score: { type: integer }
+            band: { $ref: "#/components/schemas/RiskBand" }
+            factors:
+              type: array
+              items: { $ref: "#/components/schemas/RiskFactor" }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/RuleCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        explanation: { type: string }
+        thresholds: { $ref: "#/components/schemas/Thresholds" }
+        approval:
+          oneOf:
+            - { $ref: "#/components/schemas/Approval" }
+            - { type: "null" }
+        audit: { $ref: "#/components/schemas/AuditProof" }
+        next_steps:
+          type: array
+          items: { type: string }
+
+    Approval:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        action_id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, confirmed, denied, expired] }
+        requested_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        decided_at: { type: string, format: date-time, nullable: true }
+        decided_by: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    DecideApproval:
+      type: object
+      properties:
+        decided_by: { type: string }
+        note: { type: string }
+
+    SandboxOrder:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        action_id: { type: string, format: uuid, nullable: true }
+        purpose: { type: string, enum: [purchase, topup] }
+        paypal_order_id: { type: string }
+        status: { type: string, enum: [created, approved, captured, failed] }
+        amount_cents: { type: integer }
+        currency: { type: string }
+        description: { type: string }
+        approve_url: { type: string, nullable: true }
+        capture_id: { type: string, nullable: true }
+        mode: { type: string, enum: [mock, live-sandbox] }
+        failure_reason: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        captured_at: { type: string, format: date-time, nullable: true }
+
+    Wallet:
+      type: object
+      properties:
+        agent_id: { type: string, format: uuid }
+        balance_cents: { type: integer }
+        premium_cents: { type: integer }
+        bonus_malus_bps: { type: integer }
+        reserve_contribution_cents: { type: integer }
+        spent_this_period_cents: { type: integer }
+        updated_at: { type: string, format: date-time }
+
+    PriceLine:
+      type: object
+      properties:
+        code: { type: string }
+        label: { type: string }
+        amount_cents: { type: integer }
+        explanation: { type: string }
+
+    PriceQuote:
+      type: object
+      properties:
+        currency: { type: string }
+        base_premium_cents: { type: integer }
+        risk_loading_cents: { type: integer }
+        bonus_malus_cents: { type: integer }
+        reserve_contribution_cents: { type: integer }
+        total_cents: { type: integer }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/PriceLine" }
+        headline: { type: string }
+
+    LedgerEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        agent_id: { type: string, format: uuid }
+        kind: { type: string, enum: [credit, debit, payout, refund] }
+        amount_cents: { type: integer }
+        balance_after_cents: { type: integer }
+        label: { type: string }
+        reference: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        seq: { type: integer }
+        ts: { type: string, format: date-time }
+        kind: { type: string }
+        subject: { type: string }
+        payload: { type: object }
+        prev_hash: { type: string }
+        hash: { type: string }
+
+    ChainStatus:
+      type: object
+      properties:
+        valid: { type: boolean }
+        entries: { type: integer }
+        head_hash: { type: string }
+        checked_at: { type: string, format: date-time }
+        broken_at_seq: { type: integer, nullable: true }
+        message: { type: string }
+
+    Incident:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        mandate_id: { type: string, format: uuid }
+        action_id: { type: string, format: uuid, nullable: true }
+        kind: { type: string, enum: [rogue_action, duplicate_charge, refund_request] }
+        status: { type: string, enum: [open, under_review, resolved, rejected] }
+        description: { type: string }
+        amount_cents: { type: integer }
+        currency: { type: string }
+        overseen_by: { type: string }
+        verdict: { type: object, nullable: true }
+        payout_id: { type: string, format: uuid, nullable: true }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time, nullable: true }
+
+    Payout:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        incident_id: { type: string, format: uuid, nullable: true }
+        paypal_batch_id: { type: string }
+        amount_cents: { type: integer }
+        currency: { type: string }
+        status: { type: string, enum: [created, pending, success, failed] }
+        mode: { type: string, enum: [mock, live-sandbox] }
+        recipient_email: { type: string }
+        note: { type: string }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+
+    ExpertVerdict:
+      type: object
+      properties:
+        verdict: { type: string, enum: [UPHOLD, FLAG, INCONCLUSIVE] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        summary_fr: { type: string }
+        cited_rules:
+          type: array
+          items: { type: string }
+        recommended_resolution:
+          type: string
+          enum: [PAYOUT_OVERAGE, REJECT_CLAIM, REQUEST_HUMAN_REVIEW]
+        source: { type: string }
+        latency_ms: { type: integer }
+
+    RecoveryOutcome:
+      type: object
+      properties:
+        incident: { $ref: "#/components/schemas/Incident" }
+        verdict: { $ref: "#/components/schemas/ExpertVerdict" }
+        payout:
+          oneOf:
+            - { $ref: "#/components/schemas/Payout" }
+            - { type: "null" }
+        reserve_balance_cents: { type: integer }
+        steps:
+          type: array
+          items: { type: string }

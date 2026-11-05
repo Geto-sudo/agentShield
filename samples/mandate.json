@@ -1,0 +1,18 @@
+// Exemple de mandat : casque neuf, 50 EUR max par achat, livraison sous 5 jours.
+// POST /api/mandates
+{
+  "agent_id": "REMPLACER_PAR_UN_AGENT_ID",
+  "owner_name": "Camille Renard",
+  "intent": "Casque neuf, maximum 50 EUR, livraison sous 5 jours.",
+  "category": "electronics",
+  "max_total_cents": 20000,
+  "currency": "EUR",
+  "per_txn_max_cents": 5000,
+  "auto_approve_max_cents": 4000,
+  "escalate_until_cents": 5000,
+  "allowed_merchants": ["TechStore SAS", "AudioLab"],
+  "blocked_merchants": ["RogueShop"],
+  "allowed_countries": ["FR"],
+  "max_delivery_days": 5,
+  "valid_days": 30
+}

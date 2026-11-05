@@ -1,0 +1,15 @@
+// 45 EUR : entre le seuil automatique (40) et la borne d'escalade (50)
+// -> ESCALATE : le propriétaire doit confirmer explicitement.
+// POST /api/actions
+{
+  "mandate_id": "REMPLACER_PAR_UN_MANDAT_ID",
+  "merchant": "TechStore SAS",
+  "merchant_country": "FR",
+  "amount_cents": 4500,
+  "currency": "EUR",
+  "category": "electronics",
+  "delivery_days": 4,
+  "description": "Casque audio sans fil — modèle supérieur",
+  "kind": "purchase",
+  "idempotency_key": "demo-escalate-001"
+}

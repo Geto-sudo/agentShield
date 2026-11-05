@@ -1,0 +1,21 @@
+# Rust / build
+backend/target/
+**/*.rs.bk
+
+# Base SQLite locale (recréée au démarrage)
+backend/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets
+.env
+.env.local
+
+# Outils
+.vscode/
+.idea/
+.DS_Store
+
+# Artefacts locaux
+docs/shot/
