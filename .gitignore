@@ -16,6 +16,7 @@ backend/data/
 .vscode/
 .idea/
 .DS_Store
+.deep-copilot/
 
 # Artefacts locaux
 docs/shot/
