@@ -13,6 +13,10 @@ pub struct Config {
     pub public_base_url: String,
     /// Adresse (fictive) qui reçoit les payouts Sandbox dans la démo.
     pub owner_payout_email: String,
+    /// Graine Ed25519 (base64, 32 octets) qui signe la chaîne d'audit.
+    /// Absente : une clé éphémère est générée au démarrage (sa clé publique est
+    /// journalisée, la graine privée ne l'est jamais).
+    pub audit_signing_key: Option<String>,
     pub openai: OpenAiConfig,
     pub paypal: PayPalConfig,
 }
@@ -44,6 +48,7 @@ impl Config {
             approval_ttl_minutes: env_i64("AGENTSHIELD_APPROVAL_TTL_MINUTES", 30),
             public_base_url: env_or("AGENTSHIELD_PUBLIC_URL", "http://127.0.0.1:8080"),
             owner_payout_email: env_or("AGENTSHIELD_PAYOUT_EMAIL", "sandbox-owner@example.com"),
+            audit_signing_key: env_opt(crate::store::audit::SIGNING_KEY_ENV),
             openai: OpenAiConfig {
                 api_key: env_opt("OPENAI_API_KEY"),
                 model: env_or("OPENAI_MODEL", "gpt-4o-mini"),

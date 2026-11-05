@@ -29,6 +29,13 @@ pub fn build_state(config: Config) -> Result<AppState, String> {
     use std::sync::Arc;
 
     let config = Arc::new(config);
+
+    // La clé d'audit doit être installée avant toute écriture : le seed de
+    // démonstration produit lui aussi des entrées signées. `init_signing_key`
+    // journalise la clé publique (jamais la graine privée).
+    store::audit::init_signing_key(config.audit_signing_key.as_deref())
+        .map_err(|e| format!("clé de signature d'audit : {e}"))?;
+
     let db = store::Db::open(&config.db_path).map_err(|e| format!("ouverture SQLite : {e}"))?;
 
     if config.seed_demo {

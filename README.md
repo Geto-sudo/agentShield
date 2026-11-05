@@ -20,13 +20,13 @@ développé séparément et consomme `/api/*` (CORS ouvert en développement).
 | Log JSON d'action | ✅ | schéma typé (`POST /api/actions`), clé d'idempotence |
 | Décision | ✅ | `APPROVE` / `ESCALATE` / `REFUSE`, 14 règles strictes, score de risque 0-100, explication en français |
 | Escalade | ✅ | approbation humaine explicite, expiration, refus impossible à contourner |
-| Preuve | ✅ | chaîne d'audit SHA-256 append-only + endpoint de vérification |
+| Preuve | ✅ | chaîne d'audit SHA-256 append-only, signature Ed25519 par entrée, clé publique exposée |
 | PayPal Sandbox | ✅ | `Orders` create + capture, `Payouts` ; mode `mock` automatique sans clés |
 | Wallet | ✅ | solde débité à la capture, journal (ledger), prime + bonus-malus + réserve commune |
 | Récupération | ✅ | scénario « action rogue », verdict expert structuré, payout Sandbox plafonné |
 | Expert IA | ✅ | OpenAI (`gpt-4o-mini` par défaut) + repli déterministe ; le LLM ne fixe jamais un montant |
 | SQLite | ✅ | schéma SQL embarqué, une seule source de vérité |
-| Tests | ✅ | 27 tests unitaires + 8 tests d'intégration HTTP |
+| Tests | ✅ | 34 tests unitaires + 9 tests d'intégration HTTP |
 
 Limite assumée : les agents, soldes, sinistres et remboursements sont **simulés**.
 Aucun argent réel, aucune couverture réelle.
@@ -130,6 +130,7 @@ Tout est optionnel ; sans clés, le service tourne en mode simulé complet.
 | `AGENTSHIELD_APPROVAL_TTL_MINUTES` | `30` | durée de vie d'une escalade |
 | `AGENTSHIELD_PUBLIC_URL` | `http://127.0.0.1:8080` | URLs de retour checkout |
 | `AGENTSHIELD_PAYOUT_EMAIL` | `sandbox-owner@example.com` | destinataire des payouts de démo |
+| `AGENTSHIELD_AUDIT_SIGNING_KEY` | — | graine Ed25519 (base64) de signature de l'audit ; vide = clé éphémère |
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | active le vrai Sandbox PayPal |
 | `PAYPAL_BASE_URL` | `https://api-m.sandbox.paypal.com` | API PayPal |
 | `PAYPAL_FORCE_MOCK` | `false` | force le mode simulé |
@@ -138,7 +139,8 @@ Tout est optionnel ; sans clés, le service tourne en mode simulé complet.
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | compatible Azure/proxy |
 
 `GET /api/health` expose le mode effectif (`mock` / `live-sandbox`,
-`deterministic-fallback` / `openai`).
+`deterministic-fallback` / `openai`) et la clé publique d'audit
+(`audit.public_key`, `audit.key_source`).
 
 ---
 
@@ -157,7 +159,7 @@ Tout est optionnel ; sans clés, le service tourne en mode simulé complet.
 
 ```bash
 cd backend
-cargo test          # 27 unitaires + 8 intégrations HTTP
+cargo test          # 34 unitaires + 9 intégrations HTTP
 cargo clippy --all-targets
 ```
 

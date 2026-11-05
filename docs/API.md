@@ -36,7 +36,13 @@ Chaque écriture renvoie
 ```
 
 `hash` = `sha256(prev_hash | seq | ts | kind | subject | payload)`, 64 caractères
-hexadécimaux. `GET /api/audit/verify` recalcule toute la chaîne.
+hexadécimaux. Chaque entrée est en outre signée en Ed25519 ; la clé publique qui
+atteste la chaîne est disponible sur `GET /api/audit/pubkey`. `GET /api/audit/verify`
+recalcule toute la chaîne et vérifie chaque signature.
+
+`chain_valid` dans une réponse d'écriture est un marqueur de forme (toujours
+`true`) : il n'a pas été vérifié à cet instant. La vérification réelle est
+`GET /api/audit/verify`.
 
 ### Décisions
 
@@ -56,11 +62,19 @@ hexadécimaux. `GET /api/audit/verify` recalcule toute la chaîne.
   "version": "0.1.0",
   "time": "2026-11-05T01:41:22Z",
   "modes": { "paypal": "mock", "expert": "deterministic-fallback" },
+  "audit": {
+    "algorithm": "ed25519",
+    "public_key": "lVc0I/IP+RK0CaxJqNm2gN4boAl90J7uieVkWJDVVpo=",
+    "key_source": "ephemeral"
+  },
   "notice": "Prototype Sandbox — données simulées, aucun argent réel."
 }
 ```
 
 Utilisez `modes` pour afficher un bandeau « PayPal simulé » / « Sandbox live ».
+`audit.key_source` vaut `env` (clé stable fournie par
+`AGENTSHIELD_AUDIT_SIGNING_KEY`) ou `ephemeral` (générée au démarrage : elle ne
+vérifie que les entrées écrites par ce processus).
 
 ### `GET /api/dashboard`
 
@@ -495,12 +509,19 @@ Entrées les plus récentes d'abord.
   "entries": [
     { "id": 17, "seq": 17, "ts": "…", "kind": "action.refused", "subject": "d9c22928-…",
       "payload": { "amount_cents": 6200, "decision": "REFUSE", "violated_rules": ["AMOUNT_PER_TXN"] },
-      "prev_hash": "…", "hash": "…" }
+      "prev_hash": "…", "hash": "…",
+      "pubkey": "lVc0I/IP+RK0CaxJqNm2gN4boAl90J7uieVkWJDVVpo=",
+      "signature": "5o3gYk…" }
   ],
   "count": 17,
-  "algorithm": "sha256(prev_hash | seq | ts | kind | subject | payload)"
+  "algorithm": "sha256(prev_hash | seq | ts | kind | subject | payload)",
+  "signature_algorithm": "ed25519"
 }
 ```
+
+`pubkey` et `signature` sont en base64 ; ils valent `null` uniquement pour une
+entrée écrite avant l'introduction de la signature (une telle entrée est
+signalée comme invalide par `verify`).
 
 Types d'entrées : `agent.created`, `mandate.created`, `action.approved`,
 `action.escalated`, `action.refused`, `approval.confirmed`, `approval.denied`,
@@ -518,13 +539,38 @@ Types d'entrées : `agent.created`, `mandate.created`, `action.approved`,
     "head_hash": "…",
     "checked_at": "…",
     "broken_at_seq": null,
-    "message": "17 entrées vérifiées, chaîne intacte."
+    "message": "17 entrées vérifiées, chaîne intacte et signatures valides."
   }
 }
 ```
 
 Si une ligne a été modifiée en base, `valid` passe à `false` et `broken_at_seq`
-indique la première entrée incohérente.
+indique la première entrée incohérente. `verify` recalcule la chaîne **et**
+vérifie la signature Ed25519 de chaque entrée : re-hacher toute la chaîne ne
+suffit plus, il faut aussi la clé privée. Messages de rupture possibles :
+
+| Cause | `message` (extrait) |
+| --- | --- |
+| contenu modifié sans re-hachage | « la preuve ne correspond plus à son contenu. » |
+| signature remplacée ou corrompue | « signature invalide : l'entrée a été modifiée ou signée par une autre clé. » |
+| entrée signée par une autre clé (clé éphémère changée) | « signature produite par une autre clé que la clé d'audit attendue. » |
+| entrée antérieure à la signature | « entrée non signée : la preuve n'est pas attestée par la clé d'audit. » |
+
+### `GET /api/audit/pubkey`
+
+Clé publique qui atteste les entrées. À conserver hors ligne : elle permet de
+revérifier plus tard que la chaîne n'a pas été re-signée.
+
+```json
+{
+  "audit": {
+    "algorithm": "ed25519",
+    "public_key": "lVc0I/IP+RK0CaxJqNm2gN4boAl90J7uieVkWJDVVpo=",
+    "key_source": "env"
+  },
+  "notice": "Clé stable fournie par AGENTSHIELD_AUDIT_SIGNING_KEY."
+}
+```
 
 ---
 

@@ -120,15 +120,55 @@ Conventions :
 
 ## Chaîne d'audit
 
+Chaque événement est chaîné **et signé** :
+
 ```text
-hash(n) = sha256( hash(n-1) | seq | ts | kind | subject | payload )
+hash(n)      = sha256( hash(n-1) | seq | ts | kind | subject | payload )
+signature(n) = Ed25519( hash(n) )        avec la clé d'audit du processus
 ```
 
 - `seq` strictement croissant et unique ;
 - `hash(0)` = `GENESIS` ;
-- `verify` recalcule toute la chaîne depuis le début et s'arrête sur la première
-  incohérence (`broken_at_seq`) ;
+- `verify` recalcule toute la chaîne depuis le début, puis vérifie la signature
+  de **chaque** entrée contre la clé publique attendue ; il s'arrête sur la
+  première incohérence — hash, chaînage, signature absente ou invalide — et
+  renvoie `broken_at_seq` ;
 - toute écriture métier et son entrée d'audit partagent la même transaction.
+
+### Signature
+
+| Élément | Détail |
+| --- | --- |
+| Algorithme | Ed25519 (`ed25519-dalek`, version épinglée `=2.1.1` pour rester sous MSRV 1.75) |
+| Message signé | le `hash` de l'entrée, en hexadécimal |
+| Clé privée | graine de 32 octets lue dans `AGENTSHIELD_AUDIT_SIGNING_KEY` (base64) |
+| Clé publique | base64, colonne `pubkey` de chaque entrée, exposée par `GET /api/audit/pubkey` et `GET /api/health` |
+| Colonnes | `signature` et `pubkey` (`TEXT`) ajoutées au schéma, et par `ALTER TABLE` idempotent pour les bases existantes |
+| Journalisation | seule la clé **publique** est loggée, jamais la graine |
+
+Sans `AGENTSHIELD_AUDIT_SIGNING_KEY`, une clé éphémère est générée au démarrage
+(comme le mode `mock` de PayPal : tout reste utilisable sans configuration). Sa
+clé publique est loggée et `key_source` vaut `ephemeral`. Conséquence assumée :
+**les entrées écrites par un processus précédent ne sont plus vérifiables** —
+`verify` les signale comme signées par une autre clé. Pour une démo qui redémarre,
+ou pour un audit qui doit survivre au processus, définir une clé stable :
+
+```bash
+openssl rand -base64 32     # → AGENTSHIELD_AUDIT_SIGNING_KEY
+```
+
+Ce que la signature ferme : un accès en écriture à SQLite ne suffit plus à
+réécrire la chaîne, même en la re-hachant intégralement (test
+`rehashed_chain_still_fails_without_the_private_key`).
+
+Ce qu'elle ne ferme pas : `verify` reste **ancré dans la base**. Supprimer les
+dernières entrées (troncature) ou restaurer une base antérieure complète reste
+indétectable par le processus ; il faudrait publier le `head_hash` hors de la
+base (journal append-only, horodatage tiers, transparency log). C'est hors
+périmètre du prototype et marqué `TODO(ancrage externe)` dans
+`backend/src/store/audit.rs`. Les entrées antérieures à l'introduction de la
+signature (`signature` à `NULL`) sont refusées par `verify` : une base de démo
+créée avant cette version doit être recréée.
 
 ## Concurrence
 
@@ -143,6 +183,7 @@ simple ; un pool + `BEGIN IMMEDIATE` serait l'étape suivante.
 | Pas de clés PayPal | `MockGateway`, identifiants `MOCK-…`, tout le flux reste démontrable |
 | Pas de clé OpenAI | verdict `deterministic-fallback`, même structure JSON |
 | OpenAI en erreur / timeout | repli déterministe + `tracing::warn` |
+| Pas de clé d'audit | clé Ed25519 éphémère, clé **publique** loggée ; les entrées d'un processus précédent ne sont plus vérifiables |
 | Réserve insuffisante | sinistre en `under_review`, aucun payout |
 | Escalade expirée | `409`, aucun checkout possible |
 
@@ -151,4 +192,6 @@ simple ; un pool + `BEGIN IMMEDIATE` serait l'étape suivante.
 - Aucun argent réel, aucune couverture réelle.
 - Aucune authentification : l'API suppose un environnement local de démo.
 - Aucun multi-tenant.
+- Aucun ancrage externe de l'audit (`TODO(ancrage externe)`) : la troncature et
+  la restauration d'une base antérieure ne sont pas détectées.
 - Aucun blocage d'un paiement qui ne passe pas par l'intégration AgentShield.

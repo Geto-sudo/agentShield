@@ -178,7 +178,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
     subject TEXT NOT NULL,
     payload TEXT NOT NULL,
     prev_hash TEXT NOT NULL,
-    hash      TEXT NOT NULL
+    hash      TEXT NOT NULL,
+    -- Signature Ed25519 du hash (base64) et clé publique qui l'a produite.
+    -- NULL uniquement pour les entrées écrites avant l'introduction de la signature.
+    signature TEXT,
+    pubkey    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS meta (

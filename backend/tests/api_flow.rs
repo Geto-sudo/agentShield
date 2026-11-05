@@ -21,6 +21,7 @@ fn test_state() -> AppState {
         approval_ttl_minutes: 30,
         public_base_url: "http://localhost:8080".to_string(),
         owner_payout_email: "sandbox-owner@example.com".to_string(),
+        audit_signing_key: None,
         openai: OpenAiConfig {
             api_key: None,
             model: "gpt-4o-mini".to_string(),
@@ -320,6 +321,40 @@ async fn health_reports_sandbox_modes() {
     assert_eq!(body["modes"]["paypal"], "mock");
     assert_eq!(body["modes"]["expert"], "deterministic-fallback");
     assert_eq!(body["status"], "ok");
+}
+
+/// La clé publique d'audit est exposée deux fois et doit être identique :
+/// dans `/api/health` et dans `/api/audit/pubkey`.
+#[tokio::test]
+async fn audit_public_key_is_exposed_and_consistent() {
+    let h = Harness::new();
+    let (status, health) = h.get("/api/health").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(health["audit"]["algorithm"], "ed25519");
+    let pubkey = health["audit"]["public_key"]
+        .as_str()
+        .expect("clé publique dans /api/health")
+        .to_string();
+    assert_eq!(pubkey.len(), 44, "clé Ed25519 en base64 : {pubkey}");
+
+    let (status, body) = h.get("/api/audit/pubkey").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["audit"]["public_key"], pubkey);
+    assert_eq!(body["audit"]["algorithm"], "ed25519");
+    assert_eq!(body["audit"]["key_source"], "ephemeral");
+    assert!(body["notice"].as_str().unwrap().contains("éphémère"));
+
+    // Une écriture produit une entrée signée, et la chaîne reste valide.
+    let (_, _) = h.setup().await;
+    let (status, verify) = h.get("/api/audit/verify").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(verify["chain"]["valid"], true, "{verify}");
+
+    let (status, audit) = h.get("/api/audit?limit=1").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(audit["signature_algorithm"], "ed25519");
+    assert_eq!(audit["entries"][0]["pubkey"], pubkey);
+    assert!(audit["entries"][0]["signature"].is_string());
 }
 
 #[tokio::test]

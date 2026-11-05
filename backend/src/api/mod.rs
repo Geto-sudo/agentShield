@@ -22,6 +22,7 @@ use tower_http::trace::TraceLayer;
 use crate::error::{ApiError, ApiResult};
 use crate::service;
 use crate::state::AppState;
+use crate::store;
 
 /// Routeur complet de l'API JSON.
 pub fn router(state: AppState) -> Router {
@@ -56,6 +57,7 @@ pub fn router(state: AppState) -> Router {
         // Audit
         .route("/audit", get(audit::list))
         .route("/audit/verify", get(audit::verify).post(audit::verify))
+        .route("/audit/pubkey", get(audit::pubkey))
         // Récupération / sinistres
         .route("/incidents", get(recovery::list_incidents))
         .route("/payouts", get(recovery::list_payouts))
@@ -94,7 +96,7 @@ async fn root(State(state): State<AppState>) -> Json<serde_json::Value> {
             "GET  /api/wallet/{agent_id} · /ledger · /quote · POST /api/wallet/{agent_id}/topup",
             "GET  /api/wallet/reserve",
             "GET  /api/paypal/orders · POST /api/paypal/orders/{order_id}/capture",
-            "GET  /api/audit · GET|POST /api/audit/verify",
+            "GET  /api/audit · GET|POST /api/audit/verify · GET /api/audit/pubkey",
             "GET  /api/incidents · GET /api/payouts · POST /api/recovery/simulate"
         ],
         "notice": "Prototype Sandbox — données simulées, aucun argent réel.",
@@ -115,6 +117,7 @@ async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
             "paypal": state.config.paypal_mode(),
             "expert": state.config.expert_mode(),
         },
+        "audit": store::audit::signing_info(),
         "notice": "Prototype Sandbox — données simulées, aucun argent réel.",
     }))
 }

@@ -59,19 +59,34 @@ démo ne peut pas produire un état impossible.
 
 ---
 
-## 5. Chaîne d'audit plutôt que journal simple
+## 5. Chaîne d'audit signée
 
-**Décision** — chaque événement est chaîné : `hash = sha256(prev | seq | ts | kind | subject | payload)`.
+**Décision** — chaque événement est chaîné puis signé :
+`hash = sha256(prev | seq | ts | kind | subject | payload)`, puis
+`signature = Ed25519(hash)` avec la clé d'audit du processus.
 
 **Pourquoi** — « garder la preuve » n'a de valeur que si la preuve est
 vérifiable. Une ligne modifiée casse la chaîne, et `GET /api/audit/verify` le
 détecte et indique la position.
 
-**Pourquoi pas une signature cryptographique** — surdimensionné pour un
-prototype Sandbox ; la chaîne suffit à démontrer la propriété.
+**Révision (v2)** — la chaîne seule ne suffisait pas : avec un accès en écriture
+à SQLite, un attaquant recalculait `hash` et `prev_hash` de bout en bout et
+`verify` répondait « intacte ». La signature Ed25519 ferme ce cas : sans la graine
+privée, une chaîne re-hachée est refusée. La clé vient de
+`AGENTSHIELD_AUDIT_SIGNING_KEY` (base64, 32 octets) ; sans elle, une clé
+éphémère est générée au démarrage et seule sa clé **publique** est loggée —
+même esprit que le mode `mock` de PayPal, au prix d'entrées non vérifiables
+après un redémarrage.
+
+**Ce qui reste hors périmètre** — l'ancrage externe : `verify` reste ancré dans
+la base, donc la troncature de la fin de chaîne et la restauration d'une base
+antérieure ne sont pas détectées. Il faudrait publier le `head_hash` hors de la
+base (journal append-only, horodatage tiers). `TODO(ancrage externe)` dans
+`backend/src/store/audit.rs`.
 
 **Conséquence** — l'écriture métier et l'entrée d'audit partagent une
-transaction ; une seule connexion sérialisée garantit l'ordre.
+transaction ; une seule connexion sérialisée garantit l'ordre, et la signature
+est calculée dans la même transaction que l'insertion.
 
 ---
 

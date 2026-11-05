@@ -25,12 +25,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_path = config.db_path.clone();
 
     let state = build_state(config)?;
+    let audit_key = agentshield::store::audit::signing_info();
     let app = api::router(state);
 
     tracing::info!("AgentShield — http://{addr}");
     tracing::info!("SQLite      : {db_path}");
     tracing::info!("PayPal      : {mode_paypal}");
     tracing::info!("Expert      : {mode_expert}");
+    tracing::info!("Audit       : {} ({})", audit_key.algorithm, audit_key.key_source);
     tracing::info!("Prototype Sandbox : données simulées, aucun argent réel.");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
