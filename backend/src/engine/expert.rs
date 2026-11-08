@@ -9,7 +9,8 @@ use crate::domain::mandate::Mandate;
 use crate::domain::money::format_cents;
 use crate::domain::recovery::ExpertVerdict;
 
-/// Tout ce que l'expert reçoit. Aucun secret, aucune donnée bancaire.
+/// All information received by the expert.
+/// No secrets or banking data are included.
 pub struct ExpertInput {
     pub mandate: Mandate,
     pub action_log: serde_json::Value,
@@ -21,15 +22,16 @@ pub const RESOLUTION_PAYOUT: &str = "PAYOUT_OVERAGE";
 pub const RESOLUTION_REJECT: &str = "REJECT_CLAIM";
 pub const RESOLUTION_REVIEW: &str = "REQUEST_HUMAN_REVIEW";
 
-const SYSTEM_PROMPT: &str = "Tu es l'expert sinistres d'AgentShield, un prototype Sandbox \
-utilisé dans un hackathon. Tu compares un mandat de dépense fixé par un humain et le log JSON \
-d'une action proposée par un agent IA. Tu ne décides jamais d'un montant à payer : tu qualifies \
-l'écart entre le mandat et le log, et tu recommandes une résolution. Réponds UNIQUEMENT en JSON \
-avec les clés : verdict (\"UPHOLD\", \"FLAG\" ou \"INCONCLUSIVE\"), confidence (nombre 0-1), \
-summary_fr (2 phrases maximum, en français), cited_rules (codes de règles violés), \
-recommended_resolution (\"PAYOUT_OVERAGE\", \"REJECT_CLAIM\" ou \"REQUEST_HUMAN_REVIEW\"). \
-\"UPHOLD\" signifie que la dépense respectait le mandat. \"FLAG\" signifie qu'une règle du mandat \
-a été violée. Tu n'inventes jamais de règle : tu te fondes sur les codes fournis.";
+const SYSTEM_PROMPT: &str = "You are AgentShield's claims expert, part of a Sandbox \
+prototype built for a hackathon. You compare a spending mandate defined by a human \
+with the JSON log of an action proposed by an AI agent. You never decide how much \
+money should be paid: you assess discrepancies between the mandate and the action log, \
+then recommend a resolution. Respond ONLY in JSON with these keys: verdict \
+(\"UPHOLD\", \"FLAG\" or \"INCONCLUSIVE\"), confidence (number between 0 and 1), \
+summary_fr (maximum 2 sentences, in English), cited_rules (codes of violated rules), \
+recommended_resolution (\"PAYOUT_OVERAGE\", \"REJECT_CLAIM\" or \"REQUEST_HUMAN_REVIEW\"). \
+\"UPHOLD\" means the expense complied with the mandate. \"FLAG\" means a mandate rule \
+was violated. Never invent rules: rely exclusively on the supplied rule codes.";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct LlmVerdict {
@@ -62,8 +64,11 @@ struct ChatMessage {
     content: Option<String>,
 }
 
-/// Service expert : OpenAI si une clé est configurée, sinon repli déterministe.
-/// `judge` ne renvoie jamais d'erreur : une panne du modèle ne casse pas la décision.
+/// Expert service: uses OpenAI when an API key is configured,
+/// otherwise falls back to deterministic evaluation.
+///
+/// `judge` never returns an error: a model failure cannot interrupt
+/// the decision process.
 pub struct ExpertService {
     client: Option<reqwest::Client>,
     api_key: Option<String>,
@@ -104,7 +109,10 @@ impl ExpertService {
                 match self.call_openai(client, key, input).await {
                     Ok(llm) => return reconcile(llm, enforced, &self.model),
                     Err(err) => {
-                        tracing::warn!(error = %err, "expert OpenAI indisponible, repli déterministe");
+                        tracing::warn!(
+                            error = %err,
+                            "OpenAI expert unavailable; using deterministic fallback"
+                        );
                     }
                 }
             }
@@ -138,7 +146,7 @@ impl ExpertService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("requête OpenAI: {e}"))?;
+            .map_err(|e| format!("OpenAI request failed: {e}"))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -149,22 +157,22 @@ impl ExpertService {
         let parsed: ChatResponse = response
             .json()
             .await
-            .map_err(|e| format!("réponse OpenAI illisible: {e}"))?;
+            .map_err(|e| format!("Could not parse OpenAI response: {e}"))?;
 
         let content = parsed
             .choices
             .first()
             .and_then(|c| c.message.content.clone())
-            .ok_or_else(|| "réponse OpenAI vide".to_string())?;
+            .ok_or_else(|| "OpenAI returned an empty response".to_string())?;
 
         let llm: LlmVerdict =
-            serde_json::from_str(&content).map_err(|e| format!("JSON expert invalide: {e}"))?;
+            serde_json::from_str(&content).map_err(|e| format!("Invalid expert JSON: {e}"))?;
 
         Ok(ExpertVerdict {
             verdict: normalize_verdict(&llm.verdict),
             confidence: llm.confidence.clamp(0.0, 1.0),
             summary_fr: if llm.summary_fr.trim().is_empty() {
-                "Verdict rendu sans commentaire.".to_string()
+                "The verdict was returned without an explanation.".to_string()
             } else {
                 llm.summary_fr.trim().to_string()
             },
@@ -176,8 +184,9 @@ impl ExpertService {
     }
 }
 
-/// Le verdict déterministe de repli — aussi la **borne supérieure** de ce que
-/// l'expert peut recommander.
+/// Deterministic fallback verdict.
+///
+/// It also defines the maximum coverage the expert is allowed to recommend.
 pub fn deterministic_verdict(input: &ExpertInput) -> ExpertVerdict {
     let violations = input.guardrail.violated_rules();
     let overage = (input.amount_cents - input.mandate.max_total_cents).max(0);
@@ -188,7 +197,7 @@ pub fn deterministic_verdict(input: &ExpertInput) -> ExpertVerdict {
             RESOLUTION_PAYOUT,
             0.88,
             format!(
-                "La dépense de {} dépasse le plafond de {} fixé par le mandat. L'écart de {} n'a jamais été autorisé.",
+                "The expense of {} exceeds the mandate limit of {}. The excess amount of {} was never authorized.",
                 format_cents(input.amount_cents, input.mandate.currency),
                 format_cents(input.mandate.max_total_cents, input.mandate.currency),
                 format_cents(overage, input.mandate.currency)
@@ -200,7 +209,7 @@ pub fn deterministic_verdict(input: &ExpertInput) -> ExpertVerdict {
             RESOLUTION_REVIEW,
             0.74,
             format!(
-                "Une règle stricte du mandat a été violée ({}). Le montant reste dans le plafond, une revue humaine est nécessaire.",
+                "A strict mandate rule was violated ({}). The amount remains within the spending limit, but human review is required.",
                 violations.join(", ")
             ),
         )
@@ -209,7 +218,7 @@ pub fn deterministic_verdict(input: &ExpertInput) -> ExpertVerdict {
             "UPHOLD",
             RESOLUTION_REJECT,
             0.91,
-            "Le log est cohérent avec le mandat : aucune règle stricte n'a été violée. La demande d'indemnisation est rejetée."
+            "The action log is consistent with the mandate: no strict rule was violated. The compensation claim is rejected."
                 .to_string(),
         )
     };
@@ -225,8 +234,9 @@ pub fn deterministic_verdict(input: &ExpertInput) -> ExpertVerdict {
     }
 }
 
-/// Garde-fou sur le garde-fou : le LLM peut durcir une décision, jamais élargir
-/// la couverture décidée par les règles fixes.
+/// Safety check for the safety check:
+/// the LLM may make a decision stricter, but it cannot expand
+/// the coverage authorized by the deterministic rules.
 pub fn reconcile(llm: ExpertVerdict, enforced: ExpertVerdict, model: &str) -> ExpertVerdict {
     let llm_widens = llm.recommended_resolution == RESOLUTION_PAYOUT
         && enforced.recommended_resolution != RESOLUTION_PAYOUT;
@@ -236,7 +246,7 @@ pub fn reconcile(llm: ExpertVerdict, enforced: ExpertVerdict, model: &str) -> Ex
             verdict: enforced.verdict.clone(),
             confidence: enforced.confidence,
             summary_fr: format!(
-                "{} (Verdict IA ramené au verdict déterministe : le modèle ne peut pas ouvrir un remboursement que les règles du mandat refusent.)",
+                "{} (AI verdict restricted to the deterministic verdict: the model cannot authorize a payout that the mandate rules reject.)",
                 enforced.summary_fr
             ),
             cited_rules: enforced.cited_rules.clone(),
@@ -283,9 +293,9 @@ fn user_prompt(input: &ExpertInput) -> String {
         .iter()
         .map(|c| {
             format!(
-                "- {} [{}] {} : {}",
+                "- {} [{}] {}: {}",
                 c.code,
-                if c.passed { "OK" } else { "VIOLÉ" },
+                if c.passed { "OK" } else { "VIOLATED" },
                 c.label,
                 c.detail
             )
@@ -294,23 +304,23 @@ fn user_prompt(input: &ExpertInput) -> String {
         .join("\n");
 
     format!(
-        "MANDAT (fixé par l'humain)\n\
-         - intention : {intent}\n\
-         - catégorie : {category}\n\
-         - plafond total : {max_total} {currency}\n\
-         - plafond par transaction : {per_txn} {currency}\n\
-         - approbation automatique jusqu'à : {auto} {currency}\n\
-         - escalade jusqu'à : {escalate} {currency}\n\
-         - marchands autorisés : {allowed}\n\
-         - marchands bloqués : {blocked}\n\
-         - pays autorisés : {countries}\n\
-         - délai de livraison maximal : {delivery} jours\n\n\
-         LOG JSON DE L'AGENT\n{log}\n\n\
-         DÉCISION DÉTERMINISTE (qui fait autorité)\n\
-         - décision : {decision}\n\
-         - score de risque : {risk}/100\n\
-         - règles violées : {violated}\n\
-         - détail des contrôles :\n{checks}\n",
+        "SPENDING MANDATE (defined by the human)\n\
+         - intent: {intent}\n\
+         - category: {category}\n\
+         - total spending limit: {max_total} {currency}\n\
+         - per-transaction limit: {per_txn} {currency}\n\
+         - automatic approval threshold: {auto} {currency}\n\
+         - escalation threshold: {escalate} {currency}\n\
+         - allowed merchants: {allowed}\n\
+         - blocked merchants: {blocked}\n\
+         - allowed countries: {countries}\n\
+         - maximum delivery time: {delivery} days\n\n\
+         AGENT ACTION JSON LOG\n{log}\n\n\
+         DETERMINISTIC DECISION (authoritative)\n\
+         - decision: {decision}\n\
+         - risk score: {risk}/100\n\
+         - violated rules: {violated}\n\
+         - validation details:\n{checks}\n",
         intent = m.intent,
         category = m.category,
         max_total = format_cents(m.max_total_cents, m.currency),
@@ -319,17 +329,17 @@ fn user_prompt(input: &ExpertInput) -> String {
         auto = format_cents(m.auto_approve_max_cents, m.currency),
         escalate = format_cents(m.escalate_until_cents, m.currency),
         allowed = if m.allowed_merchants.is_empty() {
-            "aucune restriction".to_string()
+            "no restrictions".to_string()
         } else {
             m.allowed_merchants.join(", ")
         },
         blocked = if m.blocked_merchants.is_empty() {
-            "aucun".to_string()
+            "none".to_string()
         } else {
             m.blocked_merchants.join(", ")
         },
         countries = if m.allowed_countries.is_empty() {
-            "aucune restriction".to_string()
+            "no restrictions".to_string()
         } else {
             m.allowed_countries.join(", ")
         },
@@ -338,7 +348,7 @@ fn user_prompt(input: &ExpertInput) -> String {
         decision = input.guardrail.decision.as_str(),
         risk = input.guardrail.risk.score,
         violated = if violated.is_empty() {
-            "aucune".to_string()
+            "none".to_string()
         } else {
             violated.join(", ")
         },
@@ -370,7 +380,7 @@ mod tests {
             id: Uuid::nil(),
             agent_id: Uuid::nil(),
             owner_name: "Camille".into(),
-            intent: "Casque maximum 50 EUR".into(),
+            intent: "Headphones up to 50 EUR".into(),
             category: "electronics".into(),
             currency: Currency::Eur,
             max_total_cents: 5_000,
@@ -400,7 +410,7 @@ mod tests {
             currency: Some(Currency::Eur),
             category: "electronics".into(),
             delivery_days: Some(4),
-            description: "Casque".into(),
+            description: "Headphones".into(),
             idempotency_key: None,
             occurred_at: None,
             metadata: None,
@@ -436,7 +446,7 @@ mod tests {
         let greedy = ExpertVerdict {
             verdict: "FLAG".into(),
             confidence: 0.99,
-            summary_fr: "Le modèle veut rembourser.".into(),
+            summary_fr: "The model recommends a payout.".into(),
             cited_rules: vec![],
             recommended_resolution: RESOLUTION_PAYOUT.into(),
             source: "openai:test".into(),
@@ -453,7 +463,7 @@ mod tests {
         let stricter = ExpertVerdict {
             verdict: "FLAG".into(),
             confidence: 0.9,
-            summary_fr: "Violation claire.".into(),
+            summary_fr: "Clear violation.".into(),
             cited_rules: vec!["AMOUNT_PER_TXN".into()],
             recommended_resolution: RESOLUTION_PAYOUT.into(),
             source: "openai:test".into(),

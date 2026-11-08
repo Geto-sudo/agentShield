@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Une entrée du journal d'audit, chaînée par hash.
+/// An audit log entry linked to the previous entry by a hash.
 ///
 /// `hash = sha256(prev_hash || seq || ts || kind || subject || payload)`
-/// Toute modification d'une entrée casse la chaîne et `verify` le détecte.
+/// Any modification to an entry breaks the chain, which `verify` detects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEntry {
     pub id: i64,
@@ -23,7 +23,7 @@ pub struct ChainStatus {
     pub entries: i64,
     pub head_hash: String,
     pub checked_at: DateTime<Utc>,
-    /// `seq` de la première entrée invalide, si la chaîne est rompue.
+    /// Sequence number of the first invalid entry, if the chain is broken.
     pub broken_at_seq: Option<i64>,
     pub message: String,
 }

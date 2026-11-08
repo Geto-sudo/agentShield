@@ -6,8 +6,8 @@ use crate::domain::money::Currency;
 use crate::store::{text_to_vec, ts_from_text, ts_to_text, uid, vec_to_text};
 
 const COLUMNS: &str = "id, agent_id, owner_name, intent, category, currency, max_total_cents, \
-     per_txn_max_cents, auto_approve_max_cents, escalate_until_cents, allowed_merchants, \
-     blocked_merchants, allowed_countries, max_delivery_days, valid_from, valid_until, status, created_at";
+    per_txn_max_cents, auto_approve_max_cents, escalate_until_cents, allowed_merchants, \
+    blocked_merchants, allowed_countries, max_delivery_days, valid_from, valid_until, status, created_at";
 
 fn row_to_mandate(row: &Row<'_>) -> rusqlite::Result<Mandate> {
     Ok(Mandate {
@@ -61,11 +61,13 @@ pub fn insert(conn: &Connection, m: &Mandate) -> rusqlite::Result<()> {
             ts_to_text(m.created_at),
         ],
     )?;
+
     Ok(())
 }
 
 pub fn get(conn: &Connection, id: Uuid) -> rusqlite::Result<Option<Mandate>> {
     let sql = format!("SELECT {COLUMNS} FROM mandates WHERE id = ?1");
+
     match conn.query_row(&sql, params![id.to_string()], row_to_mandate) {
         Ok(m) => Ok(Some(m)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -79,19 +81,24 @@ pub fn list(
     limit: i64,
 ) -> rusqlite::Result<Vec<Mandate>> {
     let limit = limit.clamp(1, 500);
+
     match agent_id {
         Some(agent) => {
             let sql = format!(
                 "SELECT {COLUMNS} FROM mandates WHERE agent_id = ?1 ORDER BY created_at DESC LIMIT ?2"
             );
+
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![agent.to_string(), limit], row_to_mandate)?;
+
             rows.collect()
         }
         None => {
             let sql = format!("SELECT {COLUMNS} FROM mandates ORDER BY created_at DESC LIMIT ?1");
+
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![limit], row_to_mandate)?;
+
             rows.collect()
         }
     }
@@ -108,12 +115,102 @@ pub fn update_status(
     )
 }
 
-/// Somme des dépenses déjà approuvées pour ce mandat.
+/// Calculates committed budget while excluding denied or expired approvals.
 pub fn committed_cents(conn: &Connection, mandate_id: Uuid) -> rusqlite::Result<i64> {
     conn.query_row(
-        "SELECT COALESCE(SUM(amount_cents), 0) FROM actions
-         WHERE mandate_id = ?1 AND decision IN ('APPROVE','ESCALATE')",
+        "SELECT COALESCE(SUM(a.amount_cents), 0)
+         FROM actions a
+         WHERE a.mandate_id = ?1
+           AND (
+               a.decision = 'APPROVE'
+               OR (
+                   a.decision = 'ESCALATE'
+                   AND EXISTS (
+                       SELECT 1
+                       FROM approvals ap
+                       WHERE ap.id = a.approval_id
+                         AND (
+                             ap.status = 'confirmed'
+                             OR (
+                                 ap.status = 'pending'
+                                 AND julianday(ap.expires_at) >= julianday('now')
+                             )
+                         )
+                   )
+               )
+           )",
         params![mandate_id.to_string()],
         |r| r.get(0),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn expired_pending_approval_does_not_count_as_committed_budget() {
+        // 1. Create a temporary in-memory SQLite database.
+        let conn = Connection::open_in_memory().expect("in-memory database");
+
+        // 2. Create the two tables required for the calculation.
+        conn.execute_batch(
+            "
+            CREATE TABLE actions (
+                id TEXT,
+                mandate_id TEXT,
+                amount_cents INTEGER,
+                decision TEXT,
+                approval_id TEXT
+            );
+
+            CREATE TABLE approvals (
+                id TEXT,
+                status TEXT,
+                expires_at TEXT
+            );
+            ",
+        )
+        .expect("table creation");
+
+        // 3. Generate test identifiers.
+        let mandate_id = Uuid::new_v4();
+        let action_id = Uuid::new_v4();
+        let approval_id = Uuid::new_v4();
+
+        // 4. Set an expiration date five minutes in the past.
+        let expired_at = (Utc::now() - Duration::minutes(5)).to_rfc3339();
+
+        // 5. Insert an action requiring approval.
+        conn.execute(
+            "INSERT INTO actions
+             (id, mandate_id, amount_cents, decision, approval_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                action_id.to_string(),
+                mandate_id.to_string(),
+                4_500,
+                "ESCALATE",
+                approval_id.to_string()
+            ],
+        )
+        .expect("action insertion");
+
+        // 6. Insert a pending approval that has already expired.
+        conn.execute(
+            "INSERT INTO approvals (id, status, expires_at)
+             VALUES (?1, ?2, ?3)",
+            params![approval_id.to_string(), "pending", expired_at],
+        )
+        .expect("approval insertion");
+
+        // 7. Verify the committed budget.
+        let committed = committed_cents(&conn, mandate_id).expect("committed budget calculation");
+
+        assert_eq!(
+            committed, 0,
+            "An expired approval must no longer reserve budget."
+        );
+    }
 }

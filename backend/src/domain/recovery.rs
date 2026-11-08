@@ -7,7 +7,7 @@ use super::money::Currency;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IncidentKind {
-    /// Une dépense a contourné le garde-fou (« action rogue »).
+    /// An expense bypassed the guardrail (a rogue action).
     RogueAction,
     DuplicateCharge,
     RefundRequest,
@@ -60,7 +60,7 @@ impl IncidentStatus {
     }
 }
 
-/// Un sinistre simulé : la trace d'une dépense qui n'aurait pas dû passer.
+/// A simulated incident recording an expense that should not have been allowed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Incident {
     pub id: Uuid,
@@ -72,7 +72,7 @@ pub struct Incident {
     pub description: String,
     pub amount_cents: i64,
     pub currency: Currency,
-    /// Qui a constaté le sinistre (`system`, `owner`, `expert`).
+    /// Who identified the incident (`system`, `owner`, or `expert`).
     pub overseen_by: String,
     pub verdict: Option<serde_json::Value>,
     pub payout_id: Option<Uuid>,
@@ -109,7 +109,7 @@ impl PayoutStatus {
     }
 }
 
-/// Payout PayPal Sandbox : l'indemnisation simulée de la réserve commune.
+/// PayPal Sandbox payout: simulated compensation from the shared reserve.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Payout {
     pub id: Uuid,
@@ -118,7 +118,7 @@ pub struct Payout {
     pub amount_cents: i64,
     pub currency: Currency,
     pub status: PayoutStatus,
-    /// `mock` ou `live-sandbox`.
+    /// `mock` or `live-sandbox`.
     pub mode: String,
     pub recipient_email: String,
     pub note: String,
@@ -126,19 +126,19 @@ pub struct Payout {
     pub completed_at: Option<DateTime<Utc>>,
 }
 
-/// Verdict structuré de l'expert. Le LLM ne fixe jamais un montant : il
-/// qualifie l'écart entre le mandat et le log, et propose une résolution.
+/// Structured expert verdict. The LLM never sets an amount: it
+/// evaluates the discrepancy between the mandate and the log, then proposes a resolution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpertVerdict {
-    /// `UPHOLD` (le refus tient), `FLAG` (violation confirmée, à indemniser),
-    /// `INCONCLUSIVE` (preuves insuffisantes).
+    /// `UPHOLD` (the rejection stands), `FLAG` (confirmed violation requiring compensation),
+    /// `INCONCLUSIVE` (insufficient evidence).
     pub verdict: String,
-    /// Entre 0.0 et 1.0.
+    /// Value between 0.0 and 1.0.
     pub confidence: f64,
     pub summary_fr: String,
     pub cited_rules: Vec<String>,
     pub recommended_resolution: String,
-    /// `openai:<modèle>` ou `deterministic-fallback`.
+    /// `openai:<model>` or `deterministic-fallback`.
     pub source: String,
     pub latency_ms: u64,
 }

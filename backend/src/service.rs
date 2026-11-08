@@ -1,8 +1,8 @@
-//! Couche service : toute la logique métier, indépendante du transport HTTP.
+//! Service layer: all business logic, independent of HTTP transport.
 //!
-//! Les handlers axum ne font que désérialiser, appeler un service et sérialiser.
-//! Le seeder de démonstration utilise exactement les mêmes fonctions : la démo
-//! ne peut pas produire un état impossible à atteindre par l'API.
+//! Axum handlers only deserialize requests, call a service, and serialize
+//! responses. The demo seeder uses exactly the same functions, ensuring that
+//! the demo cannot produce a state that the API itself could not reach.
 
 use std::sync::Arc;
 
@@ -30,11 +30,11 @@ use crate::paypal::{CreateOrderRequest, PayPalGateway, PayoutRequest};
 use crate::store::{self, Db};
 
 // ---------------------------------------------------------------------------
-// Preuve d'audit renvoyée avec chaque écriture
+// Audit proof returned with each write
 // ---------------------------------------------------------------------------
 
-/// Preuve renvoyée avec chaque écriture : position dans la chaîne + hash.
-/// `POST /api/audit/verify` recalcule la chaîne entière à la demande.
+/// Proof returned with each write: chain position and hash.
+/// `POST /api/audit/verify` recalculates the entire chain on demand.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AuditProof {
     pub seq: i64,
@@ -70,16 +70,14 @@ pub fn create_agent(
 ) -> ApiResult<(Agent, AuditProof)> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(ApiError::bad_request("Le nom de l'agent est obligatoire."));
+        return Err(ApiError::bad_request("The agent name is required."));
     }
 
     let agent = Agent {
         id: Uuid::new_v4(),
         name: name.to_string(),
-        owner: owner.unwrap_or("Propriétaire de démonstration").to_string(),
-        purpose: purpose
-            .unwrap_or("Agent de démonstration AgentShield")
-            .to_string(),
+        owner: owner.unwrap_or("Demo owner").to_string(),
+        purpose: purpose.unwrap_or("AgentShield demo agent").to_string(),
         status: AgentStatus::Active,
         created_at: Utc::now(),
     };
@@ -105,7 +103,7 @@ pub fn create_agent(
 }
 
 // ---------------------------------------------------------------------------
-// Mandats
+// Spending mandates
 // ---------------------------------------------------------------------------
 
 pub fn create_mandate(
@@ -115,18 +113,14 @@ pub fn create_mandate(
 ) -> ApiResult<(Mandate, AuditProof)> {
     if req.max_total_cents <= 0 {
         return Err(ApiError::bad_request(
-            "max_total_cents doit être un entier positif (en centimes).",
+            "max_total_cents must be a positive integer (in cents).",
         ));
     }
     if req.intent.trim().is_empty() {
-        return Err(ApiError::bad_request(
-            "L'intention du mandat est obligatoire.",
-        ));
+        return Err(ApiError::bad_request("The mandate intent is required."));
     }
     if req.category.trim().is_empty() {
-        return Err(ApiError::bad_request(
-            "La catégorie du mandat est obligatoire.",
-        ));
+        return Err(ApiError::bad_request("The mandate category is required."));
     }
 
     let agent = db
@@ -213,7 +207,7 @@ fn normalize_list(list: Option<Vec<String>>) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Cœur : proposition d'action -> décision
+// Core: action proposal -> decision
 // ---------------------------------------------------------------------------
 
 pub fn propose(db: &Db, config: &Config, proposed: ProposedAction) -> ApiResult<ProposalOutcome> {
@@ -222,7 +216,7 @@ pub fn propose(db: &Db, config: &Config, proposed: ProposedAction) -> ApiResult<
     let mandate = db
         .with_conn(|c| store::mandates::get(c, proposed.mandate_id))
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::NotFound(format!("mandat {}", proposed.mandate_id)))?;
+        .ok_or_else(|| ApiError::NotFound(format!("mandate {}", proposed.mandate_id)))?;
 
     let agent_id = proposed.agent_id.unwrap_or(mandate.agent_id);
     let agent = db
@@ -234,15 +228,14 @@ pub fn propose(db: &Db, config: &Config, proposed: ProposedAction) -> ApiResult<
     let action_id = Uuid::new_v4();
     let currency = proposed.currency.unwrap_or(mandate.currency);
 
-    // Read the budget/idempotency history and persist the decision while the
+    // Read budget and idempotency history and persist the decision while the
     // same SQLite lock and transaction are held. Otherwise concurrent requests
     // could both observe the same remaining budget and both be approved.
     let (action, verdict, approval, proof) = db
         .with_tx(|tx| {
             let history = build_history(tx, &mandate, agent_id, &proposed, now)?;
             let verdict = guardrail::evaluate(&proposed, &mandate, &history, now);
-            let approval_id = (verdict.decision == Decision::Escalate)
-                .then(Uuid::new_v4);
+            let approval_id = (verdict.decision == Decision::Escalate).then(Uuid::new_v4);
 
             let action = ActionRecord {
                 id: action_id,
@@ -351,24 +344,24 @@ fn next_steps(decision: Decision, action_id: Uuid, approval_id: Option<Uuid>) ->
     match decision {
         Decision::Approve => vec![
             format!(
-                "POST /api/actions/{action_id}/paypal/order — créer le checkout PayPal Sandbox."
+                "POST /api/actions/{action_id}/paypal/order — create the PayPal Sandbox checkout."
             ),
-            "Seule une action approuvée peut produire une commande PayPal.".to_string(),
+            "Only an approved action can generate a PayPal order.".to_string(),
         ],
         Decision::Escalate => vec![
             format!(
-                "POST /api/approvals/{}/confirm — le propriétaire confirme explicitement.",
+                "POST /api/approvals/{}/confirm — the owner explicitly confirms the action.",
                 approval_id.unwrap_or_default()
             ),
             format!(
-                "POST /api/approvals/{}/deny — ou il refuse.",
+                "POST /api/approvals/{}/deny — the owner rejects the action.",
                 approval_id.unwrap_or_default()
             ),
-            "Sans confirmation, aucun checkout ne peut être créé.".to_string(),
+            "Without confirmation, no PayPal checkout can be created.".to_string(),
         ],
         Decision::Refuse => vec![
-            "Aucun checkout PayPal n'est créé.".to_string(),
-            "L'agent reçoit l'explication ci-dessus et peut proposer une autre action.".to_string(),
+            "No PayPal checkout is created.".to_string(),
+            "The agent receives the explanation above and may submit another action.".to_string(),
         ],
     }
 }
@@ -402,7 +395,7 @@ fn build_history(
 }
 
 // ---------------------------------------------------------------------------
-// Approbations humaines
+// Human approvals
 // ---------------------------------------------------------------------------
 
 pub fn decide_approval(
@@ -416,11 +409,11 @@ pub fn decide_approval(
     let approval = db
         .with_conn(|c| store::approvals::get(c, approval_id))
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::NotFound(format!("approbation {approval_id}")))?;
+        .ok_or_else(|| ApiError::NotFound(format!("approval {approval_id}")))?;
 
     if approval.status != ApprovalStatus::Pending {
         return Err(ApiError::Conflict(format!(
-            "Cette escalade est déjà « {} ».",
+            "This escalation is already \"{}\".",
             approval.status.as_str()
         )));
     }
@@ -429,7 +422,7 @@ pub fn decide_approval(
             store::approvals::decide(c, approval_id, ApprovalStatus::Expired, None, None, now)
         });
         return Err(ApiError::Conflict(
-            "Cette escalade a expiré : elle ne peut plus être confirmée.".to_string(),
+            "This escalation has expired and can no longer be confirmed.".to_string(),
         ));
     }
 
@@ -452,7 +445,7 @@ pub fn decide_approval(
                 &approval.action_id.to_string(),
                 &json!({
                     "approval_id": approval_id,
-                    "decided_by": decided_by.unwrap_or("propriétaire"),
+                    "decided_by": decided_by.unwrap_or("Owner"),
                     "note": note,
                 }),
             )?;
@@ -477,7 +470,7 @@ pub fn decide_approval(
 // PayPal Sandbox
 // ---------------------------------------------------------------------------
 
-/// Crée un checkout PayPal pour une action approuvée (ou une escalade confirmée).
+/// Creates a PayPal checkout for an approved action or a confirmed escalation.
 pub async fn create_order_for_action(
     db: &Db,
     config: &Config,
@@ -492,8 +485,7 @@ pub async fn create_order_for_action(
     match action.decision {
         Decision::Refuse => {
             return Err(ApiError::Denied(
-                "Refus : aucun checkout PayPal ne peut être créé pour une action refusée."
-                    .to_string(),
+                "Rejection: no PayPal checkout can be created for a rejected action.".to_string(),
             ))
         }
         Decision::Escalate => {
@@ -501,11 +493,11 @@ pub async fn create_order_for_action(
                 .with_conn(|c| store::approvals::get_by_action(c, action_id))
                 .map_err(ApiError::from)?
                 .ok_or_else(|| {
-                    ApiError::Conflict("Escalade sans approbation enregistrée.".to_string())
+                    ApiError::Conflict("Escalation has no recorded approval.".to_string())
                 })?;
             if !approval.is_usable(Utc::now()) {
                 return Err(ApiError::Denied(format!(
-                    "Escalade non confirmée (état « {} ») : aucun checkout ne peut être créé.",
+                    "Unconfirmed escalation (status: \"{}\"): no PayPal checkout can be created.",
                     approval.status.as_str()
                 )));
             }
@@ -515,7 +507,7 @@ pub async fn create_order_for_action(
 
     if action.settled {
         return Err(ApiError::Conflict(
-            "Cette action a déjà été réglée.".to_string(),
+            "This action has already been settled.".to_string(),
         ));
     }
 
@@ -533,7 +525,7 @@ pub async fn create_order_for_action(
             amount_cents: action.amount_cents,
             currency: action.currency,
             description: format!(
-                "AgentShield — {} chez {}",
+                "AgentShield — {} at {}",
                 action.description, action.merchant
             ),
             reference_id: action.id.to_string(),
@@ -590,7 +582,7 @@ pub struct CaptureOutcome {
     pub audit: AuditProof,
 }
 
-/// Capture un paiement Sandbox et met à jour le solde simulé.
+/// Captures a Sandbox payment and updates the simulated wallet balance.
 pub async fn capture_order(
     db: &Db,
     paypal: &dyn PayPalGateway,
@@ -599,7 +591,7 @@ pub async fn capture_order(
     let order = db
         .with_conn(|c| store::orders::get_by_paypal_id(c, paypal_order_id))
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::NotFound(format!("commande PayPal {paypal_order_id}")))?;
+        .ok_or_else(|| ApiError::NotFound(format!("PayPal order {paypal_order_id}")))?;
 
     if order.status == OrderStatus::Captured {
         let wallet = db
@@ -647,7 +639,7 @@ pub async fn capture_order(
         });
 
         return Err(ApiError::PayPal(format!(
-            "Capture non aboutie : statut {}.",
+            "Capture unsuccessful: status {}.",
             captured.status
         )));
     }
@@ -662,7 +654,7 @@ pub async fn capture_order(
     let agent_id = action
         .as_ref()
         .map(|a| a.agent_id)
-        .ok_or_else(|| ApiError::Conflict("Commande sans agent associé.".to_string()))?;
+        .ok_or_else(|| ApiError::Conflict("Order has no associated agent.".to_string()))?;
 
     let (wallet, proof) = db
         .with_tx(|tx| {
@@ -673,7 +665,7 @@ pub async fn capture_order(
                     -order.amount_cents,
                     "debit",
                     format!(
-                        "Achat {} chez {}",
+                        "Purchase {} at {}",
                         format_cents(order.amount_cents, order.currency),
                         order.description
                     ),
@@ -682,7 +674,7 @@ pub async fn capture_order(
                     order.amount_cents,
                     "credit",
                     format!(
-                        "Rechargement wallet {}",
+                        "Wallet top-up {}",
                         format_cents(order.amount_cents, order.currency)
                     ),
                 ),
@@ -751,7 +743,7 @@ fn empty_wallet(agent_id: Uuid) -> Wallet {
     }
 }
 
-/// Rechargement du wallet simulé via un checkout PayPal Sandbox.
+/// Tops up the simulated wallet through a PayPal Sandbox checkout.
 pub async fn create_topup_order(
     db: &Db,
     config: &Config,
@@ -760,26 +752,24 @@ pub async fn create_topup_order(
     amount_cents: i64,
 ) -> ApiResult<SandboxOrder> {
     if amount_cents <= 0 {
-        return Err(ApiError::bad_request(
-            "Le montant du rechargement doit être positif.",
-        ));
+        return Err(ApiError::bad_request("The top-up amount must be positive."));
     }
     if amount_cents > 100_000 {
         return Err(ApiError::bad_request(
-            "Rechargement limité à 1 000,00 EUR dans le prototype.",
+            "Top-ups are limited to EUR 1,000.00 in this prototype.",
         ));
     }
 
     let wallet = db
         .with_conn(|c| store::wallet::get(c, agent_id))
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::NotFound(format!("wallet {agent_id}")))?;
+        .ok_or_else(|| ApiError::NotFound(format!("wallet for agent {agent_id}")))?;
 
     let created = paypal
         .create_order(CreateOrderRequest {
             amount_cents,
             currency: Currency::Eur,
-            description: "AgentShield — rechargement du wallet simulé".to_string(),
+            description: "AgentShield — simulated wallet top-up".to_string(),
             reference_id: format!("topup-{agent_id}"),
             return_url: format!("{}/?paypal=return", config.public_base_url),
             cancel_url: format!("{}/?paypal=cancel", config.public_base_url),
@@ -796,7 +786,7 @@ pub async fn create_topup_order(
         amount_cents,
         currency: Currency::Eur,
         description: format!(
-            "Rechargement wallet — solde actuel {}",
+            "Wallet top-up — current balance {}",
             format_cents(wallet.balance_cents, Currency::Eur)
         ),
         approve_url: created.approve_url,
@@ -824,14 +814,14 @@ pub async fn create_topup_order(
 }
 
 // ---------------------------------------------------------------------------
-// Wallet et prime
+// Wallet and premium
 // ---------------------------------------------------------------------------
 
 pub fn wallet_quote(db: &Db, agent_id: Uuid) -> ApiResult<(Wallet, PriceQuote)> {
     let wallet = db
         .with_conn(|c| store::wallet::get(c, agent_id))
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::NotFound(format!("wallet de l'agent {agent_id}")))?;
+        .ok_or_else(|| ApiError::NotFound(format!("wallet for agent {agent_id}")))?;
 
     let (avg_risk, approvals, incidents, refusals) = db
         .with_conn(|c| {
@@ -872,7 +862,7 @@ pub fn wallet_quote(db: &Db, agent_id: Uuid) -> ApiResult<(Wallet, PriceQuote)> 
 }
 
 // ---------------------------------------------------------------------------
-// Récupération (scénario « action rogue »)
+// Recovery (rogue action scenario)
 // ---------------------------------------------------------------------------
 
 pub async fn run_recovery(
@@ -886,14 +876,13 @@ pub async fn run_recovery(
         Some(id) => db
             .with_conn(|c| store::recovery::get_incident(c, id))
             .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::NotFound(format!("sinistre {id}")))?,
+            .ok_or_else(|| ApiError::NotFound(format!("incident {id}")))?,
         None => db
             .with_conn(|c| store::recovery::latest_open_incident(c, None))
             .map_err(ApiError::from)?
             .ok_or_else(|| {
                 ApiError::NotFound(
-                    "Aucun sinistre ouvert : lancez d'abord le scénario de démonstration."
-                        .to_string(),
+                    "No open incident found. Run the demo scenario first.".to_string(),
                 )
             })?,
     };
@@ -901,7 +890,7 @@ pub async fn run_recovery(
     let mandate = db
         .with_conn(|c| store::mandates::get(c, incident.mandate_id))
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::NotFound(format!("mandat {}", incident.mandate_id)))?;
+        .ok_or_else(|| ApiError::NotFound(format!("mandate {}", incident.mandate_id)))?;
 
     let action = match incident.action_id {
         Some(id) => db
@@ -920,7 +909,7 @@ pub async fn run_recovery(
                 "amount_cents": incident.amount_cents,
                 "currency": incident.currency.as_str(),
                 "description": incident.description,
-                "note": "log reconstitué depuis le sinistre (aucune action enregistrée)",
+                "note": "log reconstructed from the incident (no action recorded)",
             })
         });
 
@@ -952,7 +941,7 @@ pub async fn run_recovery(
         metadata: None,
     };
 
-    // On rejoue le garde-fou pour obtenir la vérité déterministe sur ce log.
+    // Re-run the guardrail to obtain the deterministic decision for this log.
     let history = HistoryWindow::default();
     let enforced: GuardrailVerdict = guardrail::evaluate(&proposed, &mandate, &history, Utc::now());
 
@@ -966,23 +955,23 @@ pub async fn run_recovery(
 
     let mut steps: Vec<String> = vec![
         format!(
-            "1. Sinistre « {} » repris : {} chez {}.",
+            "1. Incident \"{}\" recovered: {} at {}.",
             incident.kind.as_str(),
             format_cents(incident.amount_cents, incident.currency),
             proposed.merchant
         ),
         format!(
-            "2. Garde-fou rejoué sur le log : {} (score {}/100, règles violées : {}).",
+            "2. Guardrail replayed against the log: {} (score {}/100, violated rules: {}).",
             enforced.decision.as_str(),
             enforced.risk.score,
             if enforced.violated_rules().is_empty() {
-                "aucune".to_string()
+                "none".to_string()
             } else {
                 enforced.violated_rules().join(", ")
             }
         ),
         format!(
-            "3. Expert « {} » : {} (confiance {:.0} %).",
+            "3. Expert \"{}\": {} (confidence {:.0}%).",
             verdict.source,
             verdict.verdict,
             verdict.confidence * 100.0
@@ -1002,7 +991,7 @@ pub async fn run_recovery(
             let payable = overage.min(reserve_balance);
             if payable <= 0 {
                 steps.push(
-                    "4. Réserve commune insuffisante : aucun payout émis, revue humaine demandée."
+                    "4. Insufficient shared reserve: no payout issued; human review required."
                         .to_string(),
                 );
                 new_status = IncidentStatus::UnderReview;
@@ -1013,7 +1002,7 @@ pub async fn run_recovery(
                         currency: incident.currency,
                         recipient_email: config.owner_payout_email.clone(),
                         note: format!(
-                            "AgentShield — indemnisation simulée du dépassement de mandat (sinistre {})",
+                            "AgentShield — simulated compensation for mandate overage (incident {})",
                             incident.id
                         ),
                         sender_batch_id: format!("AS-{}", incident.id.simple()),
@@ -1031,7 +1020,7 @@ pub async fn run_recovery(
                     mode: paypal.mode().to_string(),
                     recipient_email: config.owner_payout_email.clone(),
                     note: format!(
-                        "Écart de {} au delà du plafond du mandat.",
+                        "Overage of {} above the mandate limit.",
                         format_cents(payable, incident.currency)
                     ),
                     created_at: Utc::now(),
@@ -1047,7 +1036,7 @@ pub async fn run_recovery(
                         tx,
                         -payable,
                         "payout",
-                        &format!("Indemnisation sinistre {}", incident_for_tx),
+                        &format!("Incident {} compensation", incident_for_tx),
                         Some(&record_for_tx.paypal_batch_id),
                     )?;
                     store::recovery::update_incident(
@@ -1074,7 +1063,7 @@ pub async fn run_recovery(
                 .map_err(ApiError::from)?;
 
                 steps.push(format!(
-                    "4. Payout Sandbox ({}) émis : {} vers {}.",
+                    "4. Sandbox payout ({}) issued: {} to {}.",
                     record.mode,
                     format_cents(payable, incident.currency),
                     record.recipient_email
@@ -1099,7 +1088,7 @@ pub async fn run_recovery(
                 Ok(())
             })
             .map_err(ApiError::from)?;
-            steps.push("4. Demande rejetée : aucune indemnisation.".to_string());
+            steps.push("4. Request rejected: no compensation issued.".to_string());
             new_status = IncidentStatus::Rejected;
         }
         _ => {
@@ -1118,7 +1107,7 @@ pub async fn run_recovery(
                 Ok(())
             })
             .map_err(ApiError::from)?;
-            steps.push("4. Revue humaine demandée : aucune décision automatique.".to_string());
+            steps.push("4. Human review requested: no automatic decision.".to_string());
             new_status = IncidentStatus::UnderReview;
         }
     }
@@ -1144,7 +1133,7 @@ pub async fn run_recovery(
     })
 }
 
-/// Crée un sinistre « action rogue » de démonstration pour un agent.
+/// Creates a demo rogue-action incident for an agent.
 pub fn spawn_rogue_scenario(db: &Db, config: &Config, agent_id: Uuid) -> ApiResult<Incident> {
     let agent = db
         .with_conn(|c| store::agents::get(c, agent_id))
@@ -1156,7 +1145,7 @@ pub fn spawn_rogue_scenario(db: &Db, config: &Config, agent_id: Uuid) -> ApiResu
         .map_err(ApiError::from)?
         .into_iter()
         .next()
-        .ok_or_else(|| ApiError::NotFound(format!("mandat actif pour l'agent {agent_id}")))?;
+        .ok_or_else(|| ApiError::NotFound(format!("active mandate for agent {agent_id}")))?;
 
     let amount = mandate.max_total_cents + (mandate.max_total_cents / 2).max(1_000);
 
@@ -1170,14 +1159,14 @@ pub fn spawn_rogue_scenario(db: &Db, config: &Config, agent_id: Uuid) -> ApiResu
         currency: Some(mandate.currency),
         category: mandate.category.clone(),
         delivery_days: Some(2),
-        description: "Achat non autorisé simulé (contournement du garde-fou)".to_string(),
+        description: "Simulated unauthorized purchase (guardrail bypass)".to_string(),
         idempotency_key: None,
         occurred_at: Some(Utc::now()),
         metadata: Some(json!({ "simulation": "rogue_action" })),
     };
 
-    // Le log est enregistré avec un refus : c'est la preuve que l'action
-    // n'aurait jamais dû passer. Le sinistre décrit le dommage, pas la décision.
+    // The log is recorded as refused, proving that the action should never
+    // have been allowed. The incident describes the damage, not the decision.
     let outcome = propose(db, config, proposed)?;
 
     let incident = Incident {
@@ -1188,7 +1177,7 @@ pub fn spawn_rogue_scenario(db: &Db, config: &Config, agent_id: Uuid) -> ApiResu
         kind: IncidentKind::RogueAction,
         status: IncidentStatus::Open,
         description: format!(
-            "Dépense de {} chez RogueShop enregistrée hors du garde-fou ; le mandat plafonne à {}.",
+            "Expense of {} at RogueShop recorded outside the guardrail; the mandate limit is {}.",
             format_cents(amount, mandate.currency),
             format_cents(mandate.max_total_cents, mandate.currency)
         ),
@@ -1223,7 +1212,7 @@ pub fn spawn_rogue_scenario(db: &Db, config: &Config, agent_id: Uuid) -> ApiResu
 }
 
 // ---------------------------------------------------------------------------
-// Tableau de bord et audit
+// Dashboard and audit
 // ---------------------------------------------------------------------------
 
 pub fn chain_status(db: &Db) -> ApiResult<ChainStatus> {
@@ -1313,6 +1302,6 @@ pub fn dashboard(db: &Db, config: &Config) -> ApiResult<Value> {
             "paypal": config.paypal_mode(),
             "expert": config.expert_mode(),
         },
-        "sandbox_notice": "Prototype Sandbox : agents, soldes et remboursements sont simulés. Aucun argent réel.",
+        "sandbox_notice": "Prototype Sandbox: agents, balances, and refunds are simulated. No real money is used.",
     }))
 }

@@ -20,3 +20,14 @@ backend/data/
 
 # Artefacts locaux
 docs/shot/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+
+# Outils et compétences locales
+.agents/

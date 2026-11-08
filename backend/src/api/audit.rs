@@ -29,7 +29,7 @@ pub async fn list(
     })))
 }
 
-/// Recalcule toute la chaîne : n'importe quelle altération est détectée.
+/// Recalculate the entire chain: any alteration is detected.
 pub async fn verify(State(state): State<AppState>) -> ApiResult<Json<Value>> {
     let status = service::chain_status(&state.db)?;
     Ok(Json(json!({ "chain": status })))

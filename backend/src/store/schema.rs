@@ -1,12 +1,12 @@
 use rusqlite::Connection;
 
-/// Le schéma est compilé dans le binaire depuis `migrations/0001_init.sql` :
-/// une seule source de vérité, aucune dépendance à un fichier au runtime.
+/// The schema is compiled into the binary from `migrations/0001_init.sql`:
+/// a single source of truth, with no runtime dependency on an external file.
 pub const SCHEMA_SQL: &str = include_str!("../../migrations/0001_init.sql");
 
 pub fn apply(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(SCHEMA_SQL)?;
-    // Ligne unique de réserve commune : créée si absente.
+    // Single shared reserve row: create it if it does not exist.
     let exists: i64 = conn.query_row("SELECT COUNT(*) FROM reserve", [], |r| r.get(0))?;
     if exists == 0 {
         conn.execute(

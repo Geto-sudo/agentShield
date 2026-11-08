@@ -7,10 +7,10 @@ use super::money::Currency;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OrderPurpose {
-    /// Paiement d'une action approuvée par le garde-fou.
+    /// Payment for an action approved by the guardrail.
     #[default]
     Purchase,
-    /// Rechargement du wallet simulé.
+    /// Simulated wallet top-up.
     Topup,
 }
 
@@ -60,8 +60,8 @@ impl OrderStatus {
     }
 }
 
-/// Commande PayPal Sandbox créée par AgentShield. Une commande ne peut exister
-/// que pour une action approuvée (ou une escalade confirmée).
+/// PayPal Sandbox order created by AgentShield. An order can only exist
+/// for an approved action (or an escalation explicitly confirmed by a human).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxOrder {
     pub id: Uuid,
@@ -74,7 +74,7 @@ pub struct SandboxOrder {
     pub description: String,
     pub approve_url: Option<String>,
     pub capture_id: Option<String>,
-    /// `mock` ou `live-sandbox`.
+    /// `mock` or `live-sandbox`.
     pub mode: String,
     pub failure_reason: Option<String>,
     pub created_at: DateTime<Utc>,

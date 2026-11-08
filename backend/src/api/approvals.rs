@@ -25,8 +25,8 @@ pub async fn list(
         .as_deref()
         .map(crate::domain::approval::ApprovalStatus::parse);
 
-    // On purge d'abord les escalades expirées : une approbation ne survit pas
-    // à sa fenêtre de confirmation.
+    // First, expire stale escalations: an approval cannot survive
+    // beyond its confirmation window.
     state
         .db
         .with_conn(|c| store::approvals::expire_stale(c, chrono::Utc::now()))
@@ -42,7 +42,7 @@ pub async fn list(
     ))
 }
 
-/// `POST /api/approvals/{id}/confirm` — la confirmation humaine explicite.
+/// `POST /api/approvals/{id}/confirm` — explicit human confirmation.
 pub async fn confirm(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -59,7 +59,7 @@ pub async fn confirm(
     Ok(Json(json!({
         "approval": approval,
         "audit": proof,
-        "notice": "Le propriétaire a confirmé explicitement. Un checkout PayPal peut désormais être créé.",
+        "notice": "The owner explicitly confirmed the approval. A PayPal checkout can now be created.",
     })))
 }
 
@@ -80,6 +80,6 @@ pub async fn deny(
     Ok(Json(json!({
         "approval": approval,
         "audit": proof,
-        "notice": "Le propriétaire a refusé l'escalade. Aucun checkout ne sera créé.",
+        "notice": "The owner rejected the escalation. No checkout will be created.",
     })))
 }

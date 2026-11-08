@@ -26,7 +26,7 @@ impl AgentStatus {
     }
 }
 
-/// Un agent IA simulé, rattaché à un propriétaire humain.
+/// A simulated AI agent assigned to a human owner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub id: Uuid,

@@ -6,8 +6,8 @@ use super::{
     PayoutRequest,
 };
 
-/// Passerelle simulée : aucune requête réseau, des identifiants réalistes
-/// (`MOCK-…`) pour que l'interface et les tests restent lisibles.
+/// Simulated gateway: no network requests are made.
+/// Realistic identifiers (`MOCK-…`) keep the interface and tests readable.
 #[derive(Debug, Default, Clone)]
 pub struct MockGateway;
 
@@ -36,10 +36,12 @@ impl PayPalGateway for MockGateway {
         if req.amount_cents <= 0 {
             return Err(PayPalError::Api {
                 status: 422,
-                message: "Le montant d'une commande doit être positif.".into(),
+                message: "An order amount must be positive.".into(),
             });
         }
+
         let id = Self::short_id("MOCK-ORDER-");
+
         Ok(CreatedOrder {
             approve_url: Some(format!(
                 "https://www.sandbox.paypal.com/checkoutnow?token={id}"
@@ -67,10 +69,12 @@ impl PayPalGateway for MockGateway {
         if !order_id.starts_with("MOCK-ORDER-") {
             return Err(PayPalError::Api {
                 status: 404,
-                message: format!("Commande inconnue : {order_id}"),
+                message: format!("Unknown order: {order_id}"),
             });
         }
+
         let capture_id = Self::short_id("MOCK-CAPTURE-");
+
         Ok(CapturedOrder {
             id: order_id.to_string(),
             status: "COMPLETED".to_string(),
@@ -94,10 +98,12 @@ impl PayPalGateway for MockGateway {
         if req.amount_cents <= 0 {
             return Err(PayPalError::Api {
                 status: 422,
-                message: "Le montant d'un payout doit être positif.".into(),
+                message: "A payout amount must be positive.".into(),
             });
         }
+
         let batch_id = Self::short_id("MOCK-PAYOUT-");
+
         Ok(CreatedPayout {
             status: "PENDING".to_string(),
             raw: json!({

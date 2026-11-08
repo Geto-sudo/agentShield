@@ -8,10 +8,11 @@ use crate::domain::money::{format_cents, Currency};
 use super::risk;
 use super::HistoryWindow;
 
-/// Évalue une action proposée contre un mandat.
+/// Evaluates a proposed action against a spending mandate.
 ///
-/// Fonction pure : aucun accès réseau, aucune horloge implicite, aucun aléa.
-/// C'est ce qui rend la décision auditable et reproductible.
+/// This is a pure function: it performs no network access, uses no implicit
+/// clock, and introduces no randomness. This makes every decision auditable
+/// and reproducible.
 pub fn evaluate(
     action: &ProposedAction,
     mandate: &Mandate,
@@ -23,76 +24,76 @@ pub fn evaluate(
     let mut checks: Vec<RuleCheck> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
 
-    // --- 1. Validité du mandat -------------------------------------------
+    // --- 1. Mandate validity ----------------------------------------------
     checks.push(RuleCheck::strict(
         "MANDATE_ACTIVE",
-        "Mandat actif",
+        "Active mandate",
         mandate.status == MandateStatus::Active,
         match mandate.status {
-            MandateStatus::Active => "Le mandat est actif.".to_string(),
-            MandateStatus::Revoked => "Le mandat a été révoqué par le propriétaire.".to_string(),
-            MandateStatus::Expired => "Le mandat est expiré.".to_string(),
+            MandateStatus::Active => "The mandate is active.".to_string(),
+            MandateStatus::Revoked => "The mandate has been revoked by its owner.".to_string(),
+            MandateStatus::Expired => "The mandate has expired.".to_string(),
         },
     ));
 
     let in_period = now >= mandate.valid_from && now <= mandate.valid_until;
     checks.push(RuleCheck::strict(
         "MANDATE_PERIOD",
-        "Mandat dans sa période de validité",
+        "Mandate validity period",
         in_period,
         if in_period {
             format!(
-                "Valide jusqu'au {}.",
+                "Valid until {}.",
                 mandate.valid_until.format("%d/%m/%Y %H:%M UTC")
             )
         } else {
             format!(
-                "Hors période : le mandat couvre du {} au {}.",
+                "Outside the validity period: the mandate covers {} to {}.",
                 mandate.valid_from.format("%d/%m/%Y %H:%M UTC"),
                 mandate.valid_until.format("%d/%m/%Y %H:%M UTC")
             )
         },
     ));
 
-    // --- 2. Nature de l'action -------------------------------------------
+    // --- 2. Action type ----------------------------------------------------
     checks.push(RuleCheck::strict(
         "ACTION_KIND",
-        "Type d'action autorisé",
+        "Authorized action type",
         action.kind.is_spend(),
         format!(
-            "Type reçu : {}. Un mandat de dépense ne couvre que les achats et abonnements.",
+            "Received action type: {}. A spending mandate only covers purchases and subscriptions.",
             action.kind.as_str()
         ),
     ));
 
-    // --- 3. Devise --------------------------------------------------------
+    // --- 3. Currency ------------------------------------------------------
     let currency_ok = currency == mandate.currency;
     checks.push(RuleCheck::strict(
         "CURRENCY_MATCH",
-        "Devise identique au mandat",
+        "Currency matches the mandate",
         currency_ok,
         format!(
-            "Action en {}, mandat en {}.",
+            "Action currency: {}, mandate currency: {}.",
             currency.as_str(),
             mandate.currency.as_str()
         ),
     ));
 
-    // --- 4. Montants ------------------------------------------------------
+    // --- 4. Amounts -------------------------------------------------------
     checks.push(RuleCheck::strict(
         "AMOUNT_POSITIVE",
-        "Montant strictement positif",
+        "Amount must be positive",
         action.amount_cents > 0,
-        format!("Montant reçu : {} centimes.", action.amount_cents),
+        format!("Received amount: {} cents.", action.amount_cents),
     ));
 
     let per_txn_ok = action.amount_cents <= mandate.per_txn_max_cents;
     checks.push(RuleCheck::strict(
         "AMOUNT_PER_TXN",
-        "Montant sous le plafond par transaction",
+        "Amount within the per-transaction limit",
         per_txn_ok,
         format!(
-            "{} demandés, plafond {}.",
+            "{} requested, transaction limit: {}.",
             format_cents(action.amount_cents, currency),
             format_cents(mandate.per_txn_max_cents, currency)
         ),
@@ -102,10 +103,10 @@ pub fn evaluate(
     let total_ok = projected <= mandate.max_total_cents;
     checks.push(RuleCheck::strict(
         "AMOUNT_TOTAL_BUDGET",
-        "Cumul sous le plafond total du mandat",
+        "Total spending within the mandate budget",
         total_ok,
         format!(
-            "Déjà engagé {} + {} = {}, plafond {}.",
+            "Already committed: {} + requested: {} = projected total: {}. Mandate limit: {}.",
             format_cents(history.committed_cents, currency),
             format_cents(action.amount_cents, currency),
             format_cents(projected, currency),
@@ -113,38 +114,38 @@ pub fn evaluate(
         ),
     ));
 
-    // --- 5. Catégorie -----------------------------------------------------
+    // --- 5. Category ------------------------------------------------------
     let category_ok = mandate.category.eq_ignore_ascii_case("any")
         || mandate
             .category
             .eq_ignore_ascii_case(action.category.trim());
+
     checks.push(RuleCheck::strict(
         "CATEGORY_ALLOWED",
-        "Catégorie autorisée par le mandat",
+        "Category authorized by the mandate",
         category_ok,
         format!(
-            "Catégorie demandée « {} », mandat « {} ».",
+            "Requested category: \"{}\". Mandate category: \"{}\".",
             action.category, mandate.category
         ),
     ));
 
-    // --- 6. Marchand ------------------------------------------------------
+    // --- 6. Merchant ------------------------------------------------------
     let merchant_norm = action.merchant.trim().to_ascii_lowercase();
+
     let blocked = mandate
         .blocked_merchants
         .iter()
         .any(|m| m.trim().eq_ignore_ascii_case(&merchant_norm));
+
     checks.push(RuleCheck::strict(
         "MERCHANT_NOT_BLOCKED",
-        "Marchand non bloqué",
+        "Merchant is not blocked",
         !blocked,
         if blocked {
-            format!(
-                "« {} » figure sur la liste des marchands bloqués.",
-                action.merchant
-            )
+            format!("\"{}\" is on the blocked merchants list.", action.merchant)
         } else {
-            "Aucun blocage pour ce marchand.".to_string()
+            "No restriction applies to this merchant.".to_string()
         },
     ));
 
@@ -153,22 +154,23 @@ pub fn evaluate(
             .allowed_merchants
             .iter()
             .any(|m| m.trim().eq_ignore_ascii_case(&merchant_norm));
+
     checks.push(RuleCheck::strict(
         "MERCHANT_ALLOWED",
-        "Marchand autorisé par le mandat",
+        "Merchant authorized by the mandate",
         allowlist_ok,
         if mandate.allowed_merchants.is_empty() {
-            "Le mandat n'impose pas de liste blanche.".to_string()
+            "The mandate does not require a merchant allowlist.".to_string()
         } else {
             format!(
-                "Liste blanche : {}. Marchand reçu : « {} ».",
+                "Merchant allowlist: {}. Received merchant: \"{}\".",
                 mandate.allowed_merchants.join(", "),
                 action.merchant
             )
         },
     ));
 
-    // --- 7. Pays ----------------------------------------------------------
+    // --- 7. Country -------------------------------------------------------
     let country_ok = if mandate.allowed_countries.is_empty() {
         true
     } else {
@@ -180,25 +182,26 @@ pub fn evaluate(
             None => false,
         }
     };
+
     checks.push(RuleCheck::strict(
         "COUNTRY_ALLOWED",
-        "Pays du marchand autorisé",
+        "Merchant country is authorized",
         country_ok,
         if mandate.allowed_countries.is_empty() {
-            "Le mandat n'impose pas de restriction de pays.".to_string()
+            "The mandate does not impose any country restrictions.".to_string()
         } else {
             format!(
-                "Pays autorisés : {}, pays reçu : {}.",
+                "Allowed countries: {}. Received country: {}.",
                 mandate.allowed_countries.join(", "),
                 action
                     .merchant_country
                     .clone()
-                    .unwrap_or_else(|| "non fourni".to_string())
+                    .unwrap_or_else(|| "not provided".to_string())
             )
         },
     ));
 
-    // --- 8. Délai de livraison -------------------------------------------
+    // --- 8. Delivery time -------------------------------------------------
     let delivery_ok = if mandate.max_delivery_days == 0 {
         true
     } else {
@@ -207,60 +210,63 @@ pub fn evaluate(
             None => false,
         }
     };
+
     checks.push(RuleCheck::strict(
         "DELIVERY_WINDOW",
-        "Livraison dans le délai exigé",
+        "Delivery within the required timeframe",
         delivery_ok,
         if mandate.max_delivery_days == 0 {
-            "Le mandat n'impose pas de délai.".to_string()
+            "The mandate does not impose a delivery deadline.".to_string()
         } else {
             format!(
-                "Délai maximal {} jours, délai annoncé {}.",
+                "Maximum delivery time: {} days. Reported delivery time: {}.",
                 mandate.max_delivery_days,
                 action
                     .delivery_days
-                    .map(|d| format!("{d} jours"))
-                    .unwrap_or_else(|| "inconnu".to_string())
+                    .map(|d| format!("{d} days"))
+                    .unwrap_or_else(|| "unknown".to_string())
             )
         },
     ));
 
-    // --- 9. Idempotence ---------------------------------------------------
+    // --- 9. Idempotency ---------------------------------------------------
     checks.push(RuleCheck::strict(
         "IDEMPOTENCY",
-        "Action non dupliquée",
+        "Action has not been duplicated",
         !history.duplicate_action,
         if history.duplicate_action {
-            "Une action portant la même clé d'idempotence a déjà été enregistrée.".to_string()
+            "An action with the same idempotency key has already been recorded.".to_string()
         } else {
-            "Aucune clé d'idempotence en doublon.".to_string()
+            "No duplicate idempotency key was detected.".to_string()
         },
     ));
 
-    // --- 10. Seuils (informatifs, ils fixent l'issue si aucune violation) --
+    // --- 10. Thresholds (informational; determine the outcome if no rule fails) ---
     let auto_ok = action.amount_cents <= thresholds.auto_approve_max_cents;
+
     checks.push(RuleCheck::soft(
         "THRESHOLD_AUTO_APPROVE",
-        "Sous le seuil d'approbation automatique",
+        "Within the automatic approval threshold",
         auto_ok,
         format!(
-            "Seuil automatique : {}.",
+            "Automatic approval threshold: {}.",
             format_cents(thresholds.auto_approve_max_cents, currency)
         ),
     ));
 
     let escalate_ok = action.amount_cents <= thresholds.escalate_until_cents;
+
     checks.push(RuleCheck::soft(
         "THRESHOLD_ESCALATION",
-        "Sous la borne d'escalade",
+        "Within the escalation threshold",
         escalate_ok,
         format!(
-            "Borne d'escalade : {}.",
+            "Escalation threshold: {}.",
             format_cents(thresholds.escalate_until_cents, currency)
         ),
     ));
 
-    // --- 11. Issue --------------------------------------------------------
+    // --- 11. Final decision ------------------------------------------------
     let strict_violations: Vec<&RuleCheck> = checks
         .iter()
         .filter(|c| !c.passed && c.severity == crate::domain::decision::CheckSeverity::Strict)
@@ -273,44 +279,46 @@ pub fn evaluate(
     } else if escalate_ok {
         Decision::Escalate
     } else {
-        // Filet de sécurité : un montant au delà de toutes les bornes est refusé.
+        // Safety fallback: amounts above all thresholds are refused.
         Decision::Refuse
     };
 
-    for v in &strict_violations {
-        reasons.push(if v.code == "AMOUNT_PER_TXN" {
+    for violation in &strict_violations {
+        reasons.push(if violation.code == "AMOUNT_PER_TXN" {
             format!(
-                "Budget dépassé : {} demandés pour un plafond de {} sur ce mandat.",
+                "Budget exceeded: {} requested against a mandate limit of {}.",
                 format_cents(action.amount_cents, currency),
                 format_cents(mandate.per_txn_max_cents, currency)
             )
-        } else if v.code == "AMOUNT_TOTAL_BUDGET" {
+        } else if violation.code == "AMOUNT_TOTAL_BUDGET" {
             format!(
-                "Plafond cumulé dépassé : {} engagés sur {} autorisés.",
+                "Cumulative spending limit exceeded: {} committed out of {} authorized.",
                 format_cents(projected, currency),
                 format_cents(mandate.max_total_cents, currency)
             )
         } else {
-            format!("{} : {}", v.label, v.detail)
+            format!("{}: {}", violation.label, violation.detail)
         });
     }
 
     if decision == Decision::Escalate {
         reasons.push(format!(
-            "Montant entre {} et {} : l'action nécessite une confirmation explicite du propriétaire.",
+            "Amount between {} and {}: the action requires explicit owner confirmation.",
             format_cents(thresholds.auto_approve_max_cents, currency),
             format_cents(thresholds.escalate_until_cents, currency)
         ));
     }
+
     if decision == Decision::Approve {
         reasons.push(format!(
-            "Toutes les règles strictes du mandat sont respectées et {} est sous le seuil automatique de {}.",
+            "All strict mandate rules are satisfied, and {} is below the automatic approval threshold of {}.",
             format_cents(action.amount_cents, currency),
             format_cents(thresholds.auto_approve_max_cents, currency)
         ));
     }
 
     let risk_assessment = risk::assess(action, mandate, history, now);
+
     let explanation = build_explanation(
         action,
         mandate,
@@ -339,9 +347,9 @@ fn build_explanation(
     risk_score: u8,
 ) -> String {
     let head = format!(
-        "{} de {} chez « {} » proposé par l'agent, mandat « {} » (plafond {}).",
+        "{} of {} at \"{}\" proposed by the agent, under mandate \"{}\" (limit {}).",
         if action.kind.is_spend() {
-            "Achat"
+            "Purchase"
         } else {
             "Action"
         },
@@ -352,9 +360,9 @@ fn build_explanation(
     );
 
     let verdict = match decision {
-        Decision::Approve => "Décision : APPROUVER.",
-        Decision::Escalate => "Décision : ESCALADER.",
-        Decision::Refuse => "Décision : REFUSER.",
+        Decision::Approve => "Decision: APPROVE.",
+        Decision::Escalate => "Decision: ESCALATE.",
+        Decision::Refuse => "Decision: REJECT.",
     };
 
     let detail = if reasons.is_empty() {
@@ -363,7 +371,7 @@ fn build_explanation(
         format!(" {}", reasons.join(" "))
     };
 
-    format!("{head}{detail} {verdict} Score de risque : {risk_score}/100.")
+    format!("{head}{detail} {verdict} Risk score: {risk_score}/100.")
 }
 
 #[cfg(test)]
@@ -376,7 +384,7 @@ mod tests {
             id: uuid::Uuid::nil(),
             agent_id: uuid::Uuid::nil(),
             owner_name: "Camille".into(),
-            intent: "Casque neuf, maximum 50 EUR, livraison sous 5 jours.".into(),
+            intent: "New headphones, maximum 50 EUR, delivery within 5 days.".into(),
             category: "electronics".into(),
             currency: Currency::Eur,
             max_total_cents: 5_000,
@@ -405,7 +413,7 @@ mod tests {
             currency: Some(Currency::Eur),
             category: "electronics".into(),
             delivery_days: Some(4),
-            description: "Casque bluetooth".into(),
+            description: "Bluetooth headphones".into(),
             idempotency_key: None,
             occurred_at: None,
             metadata: None,
@@ -419,6 +427,7 @@ mod tests {
     #[test]
     fn approves_below_auto_threshold() {
         let v = run(&action(3_800), &HistoryWindow::default());
+
         assert_eq!(v.decision, Decision::Approve);
         assert!(v.all_strict_passed());
     }
@@ -426,6 +435,7 @@ mod tests {
     #[test]
     fn escalates_between_thresholds() {
         let v = run(&action(4_500), &HistoryWindow::default());
+
         assert_eq!(v.decision, Decision::Escalate);
         assert!(v.all_strict_passed());
     }
@@ -433,16 +443,19 @@ mod tests {
     #[test]
     fn refuses_above_mandate_ceiling() {
         let v = run(&action(6_200), &HistoryWindow::default());
+
         assert_eq!(v.decision, Decision::Refuse);
         assert!(v.violated_rules().contains(&"AMOUNT_PER_TXN".to_string()));
-        assert!(v.reasons.iter().any(|r| r.contains("Budget dépassé")));
+        assert!(v.reasons.iter().any(|r| r.contains("Budget exceeded")));
     }
 
     #[test]
     fn refuses_blocked_merchant() {
         let mut a = action(1_000);
         a.merchant = "RogueShop".into();
+
         let v = run(&a, &HistoryWindow::default());
+
         assert_eq!(v.decision, Decision::Refuse);
         assert!(v
             .violated_rules()
@@ -453,7 +466,9 @@ mod tests {
     fn refuses_unknown_country() {
         let mut a = action(1_000);
         a.merchant_country = None;
+
         let v = run(&a, &HistoryWindow::default());
+
         assert_eq!(v.decision, Decision::Refuse);
         assert!(v.violated_rules().contains(&"COUNTRY_ALLOWED".to_string()));
     }
@@ -462,7 +477,9 @@ mod tests {
     fn refuses_late_delivery() {
         let mut a = action(1_000);
         a.delivery_days = Some(9);
+
         let v = run(&a, &HistoryWindow::default());
+
         assert_eq!(v.decision, Decision::Refuse);
         assert!(v.violated_rules().contains(&"DELIVERY_WINDOW".to_string()));
     }
@@ -471,7 +488,9 @@ mod tests {
     fn refuses_wrong_currency() {
         let mut a = action(1_000);
         a.currency = Some(Currency::Usd);
+
         let v = run(&a, &HistoryWindow::default());
+
         assert_eq!(v.decision, Decision::Refuse);
         assert!(v.violated_rules().contains(&"CURRENCY_MATCH".to_string()));
     }
@@ -482,7 +501,9 @@ mod tests {
             committed_cents: 4_800,
             ..Default::default()
         };
+
         let v = run(&action(1_000), &history);
+
         assert_eq!(v.decision, Decision::Refuse);
         assert!(v
             .violated_rules()
@@ -495,7 +516,9 @@ mod tests {
             duplicate_action: true,
             ..Default::default()
         };
+
         let v = run(&action(1_000), &history);
+
         assert_eq!(v.decision, Decision::Refuse);
     }
 
@@ -503,7 +526,9 @@ mod tests {
     fn refuses_revoked_mandate() {
         let mut m = mandate();
         m.status = MandateStatus::Revoked;
+
         let v = evaluate(&action(1_000), &m, &HistoryWindow::default(), Utc::now());
+
         assert_eq!(v.decision, Decision::Refuse);
         assert!(v.violated_rules().contains(&"MANDATE_ACTIVE".to_string()));
     }
@@ -513,8 +538,10 @@ mod tests {
         let a = action(4_500);
         let now = Utc::now();
         let m = mandate();
+
         let first = evaluate(&a, &m, &HistoryWindow::default(), now);
         let second = evaluate(&a, &m, &HistoryWindow::default(), now);
+
         assert_eq!(first.decision, second.decision);
         assert_eq!(first.risk.score, second.risk.score);
         assert_eq!(first.explanation, second.explanation);

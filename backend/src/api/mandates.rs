@@ -52,7 +52,7 @@ pub async fn get_one(
         .db
         .with_conn(|c| store::mandates::get(c, id))
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::NotFound(format!("mandat {id}")))?;
+        .ok_or_else(|| ApiError::NotFound(format!("mandate {id}")))?;
 
     let committed = state
         .db

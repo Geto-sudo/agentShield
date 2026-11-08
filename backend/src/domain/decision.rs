@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Les trois seules issues possibles. `Escalate` n'est jamais un accord implicite.
+/// The three possible outcomes. `Escalate` is never implicit approval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Decision {
@@ -45,15 +45,15 @@ impl std::fmt::Display for Decision {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CheckSeverity {
-    /// Une violation stricte entraîne un refus, quels que soient les seuils.
+    /// A strict violation results in rejection, regardless of thresholds.
     Strict,
-    /// Contrôle informatif : n'empêche rien, alimente l'explication.
+    /// An informational check that does not block an action but contributes to its explanation.
     Soft,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleCheck {
-    /// Code stable, utilisé dans l'audit et par l'expert IA.
+    /// Stable code used in the audit log and by the AI expert.
     pub code: String,
     pub label: String,
     pub severity: CheckSeverity,
@@ -151,7 +151,7 @@ pub struct Thresholds {
     pub escalate_until_cents: i64,
 }
 
-/// Sortie complète et reproductible du moteur déterministe.
+/// Complete and reproducible output of the deterministic decision engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuardrailVerdict {
     pub decision: Decision,
@@ -163,7 +163,7 @@ pub struct GuardrailVerdict {
 }
 
 impl GuardrailVerdict {
-    /// Codes de règles violés (uniquement les règles strictes).
+    /// Returns the codes of violated strict rules only.
     pub fn violated_rules(&self) -> Vec<String> {
         self.checks
             .iter()

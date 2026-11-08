@@ -1,5 +1,6 @@
-//! Tests d'intégration HTTP : le parcours complet mandat → action → décision →
-//! checkout PayPal → capture, en mémoire, sans réseau ni argent réel.
+//! HTTP integration tests covering the complete flow:
+//! mandate -> action -> decision -> PayPal checkout -> capture.
+//! All tests run in memory, without network access or real money.
 
 use agentshield::config::{Config, OpenAiConfig, PayPalConfig};
 use agentshield::state::AppState;
@@ -35,7 +36,7 @@ fn test_state() -> AppState {
         },
     };
 
-    build_state(config).expect("état de test")
+    build_state(config).expect("test application state")
 }
 
 struct Harness {
@@ -54,7 +55,8 @@ impl Harness {
             .method("GET")
             .uri(uri)
             .body(Body::empty())
-            .expect("requête GET");
+            .expect("GET request");
+
         self.send(request).await
     }
 
@@ -64,7 +66,8 @@ impl Harness {
             .uri(uri)
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
-            .expect("requête POST");
+            .expect("POST request");
+
         self.send(request).await
     }
 
@@ -74,25 +77,35 @@ impl Harness {
             .clone()
             .oneshot(request)
             .await
-            .expect("réponse du routeur");
+            .expect("router response");
+
         let status = response.status();
+
         let bytes = axum::body::to_bytes(response.into_body(), BIG_BUFFER)
             .await
-            .expect("corps de réponse");
+            .expect("response body");
+
         let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+
         (status, value)
     }
 
-    /// Crée un agent + un mandat de démonstration et renvoie leurs identifiants.
+    /// Creates a demo agent and mandate and returns their identifiers.
     async fn setup(&self) -> (String, String) {
         let (status, agent) = self
             .post(
                 "/api/agents",
-                json!({ "name": "Atlas Shopper", "owner": "Camille", "purpose": "achats" }),
+                json!({
+                    "name": "Atlas Shopper",
+                    "owner": "Camille",
+                    "purpose": "shopping"
+                }),
             )
             .await;
-        assert_eq!(status, StatusCode::OK, "création agent : {agent}");
-        let agent_id = agent["agent"]["id"].as_str().unwrap().to_string();
+
+        assert_eq!(status, StatusCode::OK, "agent creation: {agent}");
+
+        let agent_id = agent["agent"]["id"].as_str().expect("agent ID").to_string();
 
         let (status, mandate) = self
             .post(
@@ -100,7 +113,7 @@ impl Harness {
                 json!({
                     "agent_id": agent_id,
                     "owner_name": "Camille",
-                    "intent": "Casque neuf, maximum 50 EUR, livraison sous 5 jours.",
+                    "intent": "New headphones, maximum 50 EUR, delivery within 5 days.",
                     "category": "electronics",
                     "max_total_cents": 20_000,
                     "per_txn_max_cents": 5_000,
@@ -112,8 +125,13 @@ impl Harness {
                 }),
             )
             .await;
-        assert_eq!(status, StatusCode::OK, "création mandat : {mandate}");
-        let mandate_id = mandate["mandate"]["id"].as_str().unwrap().to_string();
+
+        assert_eq!(status, StatusCode::OK, "mandate creation: {mandate}");
+
+        let mandate_id = mandate["mandate"]["id"]
+            .as_str()
+            .expect("mandate ID")
+            .to_string();
 
         (agent_id, mandate_id)
     }
@@ -134,7 +152,7 @@ impl Harness {
                 "currency": "EUR",
                 "category": "electronics",
                 "delivery_days": 4,
-                "description": "Casque audio sans fil",
+                "description": "Wireless headphones",
                 "kind": "purchase"
             }),
         )
@@ -147,43 +165,76 @@ async fn approves_and_settles_a_small_purchase() {
     let h = Harness::new();
     let (agent_id, mandate_id) = h.setup().await;
 
+    // Read the initial wallet balance before the purchase.
+    let (status, wallet_before) = h.get(&format!("/api/wallet/{agent_id}")).await;
+
+    assert_eq!(status, StatusCode::OK, "{wallet_before}");
+
+    let initial_balance = wallet_before["wallet"]["balance_cents"]
+        .as_i64()
+        .expect("initial wallet balance");
+
+    // Propose a purchase below the automatic approval threshold.
     let (status, body) = h.propose(&mandate_id, 3_800, "FR").await;
+
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["decision"], "APPROVE");
 
-    let action_id = body["action"]["id"].as_str().unwrap().to_string();
-    let audit_hash = body["audit"]["hash"].as_str().unwrap().to_string();
+    let action_id = body["action"]["id"]
+        .as_str()
+        .expect("action ID")
+        .to_string();
+
+    let audit_hash = body["audit"]["hash"]
+        .as_str()
+        .expect("audit hash")
+        .to_string();
+
     assert_eq!(
         audit_hash.len(),
         64,
-        "le hash d'audit doit faire 64 caractères"
+        "audit hash must contain 64 characters"
     );
 
+    // Create a PayPal checkout order in mock mode.
     let (status, order) = h
         .post(&format!("/api/actions/{action_id}/paypal/order"), json!({}))
         .await;
+
     assert_eq!(status, StatusCode::OK, "{order}");
     assert_eq!(order["order"]["status"], "created");
     assert_eq!(order["order"]["mode"], "mock");
 
     let paypal_order = order["order"]["paypal_order_id"]
         .as_str()
-        .unwrap()
+        .expect("PayPal order ID")
         .to_string();
 
+    // Capture the mock PayPal order.
     let (status, capture) = h
         .post(
             &format!("/api/paypal/orders/{paypal_order}/capture"),
             json!({}),
         )
         .await;
+
     assert_eq!(status, StatusCode::OK, "{capture}");
     assert_eq!(capture["order"]["status"], "captured");
 
-    let (status, wallet) = h.get(&format!("/api/wallet/{agent_id}")).await;
-    assert_eq!(status, StatusCode::OK);
-    let balance = wallet["wallet"]["balance_cents"].as_i64().unwrap();
-    assert_eq!(balance, 5_000 - 3_800, "le wallet doit être débité");
+    // Verify that the wallet was debited.
+    let (status, wallet_after) = h.get(&format!("/api/wallet/{agent_id}")).await;
+
+    assert_eq!(status, StatusCode::OK, "{wallet_after}");
+
+    let final_balance = wallet_after["wallet"]["balance_cents"]
+        .as_i64()
+        .expect("final wallet balance");
+
+    assert_eq!(
+        final_balance,
+        initial_balance - 3_800,
+        "wallet should be debited after capture"
+    );
 }
 
 #[tokio::test]
@@ -192,35 +243,95 @@ async fn escalation_requires_explicit_human_confirmation() {
     let (_, mandate_id) = h.setup().await;
 
     let (status, body) = h.propose(&mandate_id, 4_500, "FR").await;
-    assert_eq!(status, StatusCode::OK);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["decision"], "ESCALATE");
 
-    let action_id = body["action"]["id"].as_str().unwrap().to_string();
-    let approval_id = body["approval"]["id"].as_str().unwrap().to_string();
+    let action_id = body["action"]["id"]
+        .as_str()
+        .expect("action ID")
+        .to_string();
+
+    let approval_id = body["approval"]["id"]
+        .as_str()
+        .expect("approval ID")
+        .to_string();
+
     assert_eq!(body["approval"]["status"], "pending");
 
-    // Sans confirmation, aucun checkout.
+    // Checkout must be forbidden before human confirmation.
     let (status, _) = h
         .post(&format!("/api/actions/{action_id}/paypal/order"), json!({}))
         .await;
+
     assert_eq!(status, StatusCode::FORBIDDEN);
 
-    // Confirmation explicite du propriétaire.
+    // The owner explicitly confirms the expense.
     let (status, confirmed) = h
         .post(
             &format!("/api/approvals/{approval_id}/confirm"),
             json!({ "decided_by": "Camille" }),
         )
         .await;
+
     assert_eq!(status, StatusCode::OK, "{confirmed}");
     assert_eq!(confirmed["approval"]["status"], "confirmed");
 
-    // Maintenant seulement, le checkout est autorisé.
+    // A confirmed approval must remain committed to the mandate budget.
+    let (status, mandate) = h.get(&format!("/api/mandates/{mandate_id}")).await;
+
+    assert_eq!(status, StatusCode::OK, "{mandate}");
+    assert_eq!(mandate["committed_cents"], 4_500);
+    assert_eq!(mandate["remaining_cents"], 15_500);
+
+    // Checkout is allowed only after confirmation.
     let (status, order) = h
         .post(&format!("/api/actions/{action_id}/paypal/order"), json!({}))
         .await;
+
     assert_eq!(status, StatusCode::OK, "{order}");
     assert_eq!(order["order"]["amount_cents"], 4_500);
+}
+
+#[tokio::test]
+async fn denied_approval_releases_committed_budget() {
+    let h = Harness::new();
+    let (_, mandate_id) = h.setup().await;
+
+    // Propose an expense requiring human approval.
+    let (status, body) = h.propose(&mandate_id, 4_500, "FR").await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["decision"], "ESCALATE");
+
+    let approval_id = body["approval"]["id"]
+        .as_str()
+        .expect("approval ID")
+        .to_string();
+
+    // The budget is reserved while approval is pending.
+    let (status, mandate) = h.get(&format!("/api/mandates/{mandate_id}")).await;
+
+    assert_eq!(status, StatusCode::OK, "{mandate}");
+    assert_eq!(mandate["committed_cents"], 4_500);
+
+    // The owner denies the expense.
+    let (status, denied) = h
+        .post(
+            &format!("/api/approvals/{approval_id}/deny"),
+            json!({ "decided_by": "Camille" }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::OK, "{denied}");
+    assert_eq!(denied["approval"]["status"], "denied");
+
+    // The committed budget must be released.
+    let (status, mandate) = h.get(&format!("/api/mandates/{mandate_id}")).await;
+
+    assert_eq!(status, StatusCode::OK, "{mandate}");
+    assert_eq!(mandate["committed_cents"], 0);
+    assert_eq!(mandate["remaining_cents"], 20_000);
 }
 
 #[tokio::test]
@@ -228,18 +339,29 @@ async fn refusal_never_produces_a_checkout() {
     let h = Harness::new();
     let (_, mandate_id) = h.setup().await;
 
+    // Propose an expense exceeding the per-transaction limit.
     let (status, body) = h.propose(&mandate_id, 6_200, "FR").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["decision"], "REFUSE");
-    assert!(body["reasons"][0]
-        .as_str()
-        .unwrap()
-        .contains("Budget dépassé"));
 
-    let action_id = body["action"]["id"].as_str().unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["decision"], "REFUSE");
+
+    // Verify that the response contains at least one refusal reason.
+    let reasons = body["reasons"]
+        .as_array()
+        .expect("reasons should be an array");
+
+    assert!(
+        !reasons.is_empty(),
+        "a refused action should contain at least one reason"
+    );
+
+    let action_id = body["action"]["id"].as_str().expect("action ID");
+
+    // A refused action must never produce a PayPal checkout.
     let (status, denied) = h
         .post(&format!("/api/actions/{action_id}/paypal/order"), json!({}))
         .await;
+
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(denied["error"]["code"], "guardrail_denied");
 }
@@ -250,17 +372,22 @@ async fn refuses_unknown_country_and_keeps_the_reason() {
     let (_, mandate_id) = h.setup().await;
 
     let (status, body) = h.propose(&mandate_id, 3_000, "BR").await;
-    assert_eq!(status, StatusCode::OK);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["decision"], "REFUSE");
 
     let codes: Vec<String> = body["checks"]
         .as_array()
-        .unwrap()
+        .expect("checks should be an array")
         .iter()
-        .filter(|c| c["passed"] == false)
-        .map(|c| c["code"].as_str().unwrap().to_string())
+        .filter(|check| check["passed"] == false)
+        .map(|check| check["code"].as_str().expect("rule code").to_string())
         .collect();
-    assert!(codes.contains(&"COUNTRY_ALLOWED".to_string()), "{codes:?}");
+
+    assert!(
+        codes.contains(&"COUNTRY_ALLOWED".to_string()),
+        "expected COUNTRY_ALLOWED to fail, got: {codes:?}"
+    );
 }
 
 #[tokio::test]
@@ -273,9 +400,18 @@ async fn audit_chain_stays_valid_across_the_whole_flow() {
     h.propose(&mandate_id, 9_000, "FR").await;
 
     let (status, body) = h.get("/api/audit/verify").await;
-    assert_eq!(status, StatusCode::OK);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["chain"]["valid"], true);
-    assert!(body["chain"]["entries"].as_i64().unwrap() >= 5);
+
+    let entries = body["chain"]["entries"]
+        .as_i64()
+        .expect("audit entry count");
+
+    assert!(
+        entries >= 5,
+        "expected at least 5 audit entries, got {entries}"
+    );
 }
 
 #[tokio::test]
@@ -284,39 +420,53 @@ async fn recovery_pays_the_overage_from_the_common_reserve() {
     let (agent_id, _) = h.setup().await;
 
     let (status, before) = h.get("/api/wallet/reserve").await;
-    assert_eq!(status, StatusCode::OK);
-    let reserve_before = before["balance_cents"].as_i64().unwrap();
+
+    assert_eq!(status, StatusCode::OK, "{before}");
+
+    let reserve_before = before["balance_cents"]
+        .as_i64()
+        .expect("initial reserve balance");
 
     let (status, body) = h
         .post("/api/recovery/simulate", json!({ "agent_id": agent_id }))
         .await;
+
     assert_eq!(status, StatusCode::OK, "{body}");
 
     let verdict = &body["outcome"]["verdict"];
+
     assert_eq!(verdict["verdict"], "FLAG");
     assert_eq!(verdict["recommended_resolution"], "PAYOUT_OVERAGE");
 
     let payout = &body["outcome"]["payout"];
+
     assert!(payout["paypal_batch_id"]
         .as_str()
-        .unwrap()
+        .expect("PayPal batch ID")
         .starts_with("MOCK-PAYOUT-"));
-    let paid = payout["amount_cents"].as_i64().unwrap();
-    assert!(paid > 0);
 
-    let reserve_after = body["outcome"]["reserve_balance_cents"].as_i64().unwrap();
+    let paid = payout["amount_cents"].as_i64().expect("payout amount");
+
+    assert!(paid > 0, "payout amount must be positive");
+
+    let reserve_after = body["outcome"]["reserve_balance_cents"]
+        .as_i64()
+        .expect("final reserve balance");
+
     assert_eq!(
         reserve_after,
         reserve_before - paid,
-        "la réserve finance le payout"
+        "the common reserve must fund the payout"
     );
 }
 
 #[tokio::test]
 async fn health_reports_sandbox_modes() {
     let h = Harness::new();
+
     let (status, body) = h.get("/api/health").await;
-    assert_eq!(status, StatusCode::OK);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["modes"]["paypal"], "mock");
     assert_eq!(body["modes"]["expert"], "deterministic-fallback");
     assert_eq!(body["status"], "ok");
@@ -325,6 +475,7 @@ async fn health_reports_sandbox_modes() {
 #[tokio::test]
 async fn unknown_mandate_is_a_404() {
     let h = Harness::new();
+
     let (status, body) = h
         .post(
             "/api/actions",
@@ -337,6 +488,7 @@ async fn unknown_mandate_is_a_404() {
             }),
         )
         .await;
+
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"]["code"], "not_found");
 }

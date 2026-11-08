@@ -1,7 +1,7 @@
-//! Types métier d'AgentShield.
+//! AgentShield business domain types.
 //!
-//! Règle de base du prototype : **l'argent est toujours un entier de centimes**.
-//! Aucun `f64` ne participe à une décision financière.
+//! Core prototype rule: **money is always represented as an integer number of cents**.
+//! No `f64` value is used in financial decisions.
 
 pub mod action;
 pub mod agent;

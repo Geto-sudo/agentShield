@@ -3,7 +3,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 
-/// Erreur d'API : un statut HTTP, un code stable et un message en français.
+/// API error containing an HTTP status, a stable code, and an English message.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("{0}")]
@@ -14,11 +14,11 @@ pub enum ApiError {
     Conflict(String),
     #[error("{0}")]
     Denied(String),
-    #[error("erreur base de données : {0}")]
+    #[error("Database error: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("{0}")]
     Internal(String),
-    #[error("PayPal : {0}")]
+    #[error("PayPal error: {0}")]
     PayPal(String),
 }
 
@@ -47,7 +47,7 @@ impl ApiError {
     }
 
     pub fn not_found(what: impl std::fmt::Display) -> Self {
-        ApiError::NotFound(format!("{what} introuvable"))
+        ApiError::NotFound(format!("{what} not found"))
     }
 
     pub fn bad_request(what: impl std::fmt::Display) -> Self {

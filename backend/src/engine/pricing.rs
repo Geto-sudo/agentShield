@@ -1,7 +1,8 @@
 use crate::domain::money::{format_cents, Currency};
 use crate::domain::wallet::{PriceLine, PriceQuote, Wallet};
 
-/// Entrées du calcul de prime. Tout est entier : aucun arrondi flottant.
+/// Inputs used to calculate the premium.
+/// All values are integers: no floating-point rounding is involved.
 pub struct PricingInput<'a> {
     pub wallet: &'a Wallet,
     pub avg_risk_score: u8,
@@ -9,10 +10,10 @@ pub struct PricingInput<'a> {
     pub approvals: i64,
 }
 
-/// Bonus-malus en points de base (10 000 bps = 100 %).
+/// Bonus-malus calculation in basis points (10,000 bps = 100%).
 ///
-/// * chaque sinistre constaté renchérit la prime ;
-/// * un historique d'achats approuvés sans incident la réduit.
+/// * Each recorded incident increases the premium.
+/// * A history of approved purchases without incidents reduces it.
 pub fn bonus_malus_bps(incidents: i64, approvals: i64) -> i32 {
     let malus = (incidents.clamp(0, 4) * 600) as i32; // 0 .. 2400 bps
     let bonus = -((approvals.clamp(0, 10) * 80) as i32); // 0 .. -800 bps
@@ -24,7 +25,7 @@ pub fn quote(input: &PricingInput<'_>) -> PriceQuote {
     let base = input.wallet.premium_cents.max(0);
 
     let bps = bonus_malus_bps(input.incidents, input.approvals);
-    let risk_loading = base * input.avg_risk_score as i64 / 200; // jusqu'à +50 %
+    let risk_loading = base * input.avg_risk_score as i64 / 200; // Up to +50%
     let bonus_malus = base * bps as i64 / 10_000;
     let reserve = base / 10;
 
@@ -33,25 +34,29 @@ pub fn quote(input: &PricingInput<'_>) -> PriceQuote {
     let lines = vec![
         PriceLine {
             code: "BASE".into(),
-            label: "Prime de base".into(),
+            label: "Base premium".into(),
             amount_cents: base,
-            explanation: "Tarif mensuel de référence du prototype, hors ajustements.".into(),
+            explanation: "Prototype reference monthly rate, excluding adjustments.".into(),
         },
         PriceLine {
             code: "RISK_LOADING".into(),
-            label: "Chargement risque".into(),
+            label: "Risk loading".into(),
             amount_cents: risk_loading,
             explanation: format!(
-                "Score de risque moyen observé : {}/100. Le chargement vaut au plus 50 % de la prime de base.",
+                "Average observed risk score: {}/100. Risk loading is capped at 50% of the base premium.",
                 input.avg_risk_score
             ),
         },
         PriceLine {
             code: "BONUS_MALUS".into(),
-            label: if bonus_malus <= 0 { "Bonus historique".into() } else { "Malus sinistres".into() },
+            label: if bonus_malus <= 0 {
+                "Historical bonus".into()
+            } else {
+                "Incident penalty".into()
+            },
             amount_cents: bonus_malus,
             explanation: format!(
-                "{} sinistre(s) constaté(s), {} achat(s) approuvé(s) : ajustement de {:+.2} %.",
+                "{} incident(s) recorded, {} approved purchase(s): adjustment of {:+.2}%.",
                 input.incidents,
                 input.approvals,
                 bps as f64 / 100.0
@@ -59,15 +64,15 @@ pub fn quote(input: &PricingInput<'_>) -> PriceQuote {
         },
         PriceLine {
             code: "RESERVE".into(),
-            label: "Contribution réserve commune".into(),
+            label: "Shared reserve contribution".into(),
             amount_cents: reserve,
-            explanation: "10 % de la prime alimentent la réserve locale qui finance les remboursements simulés."
+            explanation: "10% of the premium contributes to the local reserve used to fund simulated refunds."
                 .into(),
         },
     ];
 
     let headline = format!(
-        "Prime simulée : {} (base {}, ajustements {}, réserve {}).",
+        "Simulated premium: {} (base {}, adjustments {}, reserve {}).",
         format_cents(total, currency),
         format_cents(base, currency),
         format_cents(risk_loading + bonus_malus, currency),

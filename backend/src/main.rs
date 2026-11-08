@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = config
         .addr
         .parse()
-        .map_err(|e| format!("AGENTSHIELD_ADDR invalide : {e}"))?;
+        .map_err(|e| format!("Invalid AGENTSHIELD_ADDR: {e}"))?;
     let mode_paypal = config.paypal_mode();
     let mode_expert = config.expert_mode();
     let db_path = config.db_path.clone();
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("SQLite      : {db_path}");
     tracing::info!("PayPal      : {mode_paypal}");
     tracing::info!("Expert      : {mode_expert}");
-    tracing::info!("Prototype Sandbox : données simulées, aucun argent réel.");
+    tracing::info!("Sandbox prototype: simulated data, no real money involved.");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
@@ -62,5 +62,5 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 
-    tracing::info!("Arrêt demandé, fermeture propre.");
+    tracing::info!("Shutdown requested. Performing graceful shutdown.");
 }

@@ -4,18 +4,18 @@ use uuid::Uuid;
 
 use super::money::Currency;
 
-/// Portefeuille simulé d'un agent. Aucun solde réel n'est manipulé.
+/// Simulated agent wallet. No real balance is handled.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Wallet {
     pub agent_id: Uuid,
     pub balance_cents: i64,
-    /// Prime mensuelle simulée (ce que coûterait la couverture).
+    /// Simulated monthly premium (the cost of coverage).
     pub premium_cents: i64,
-    /// Bonus-malus en points de base : `-1500` = -15 %, `+2000` = +20 %.
+    /// Bonus-malus in basis points: `-1500` = -15%, `+2000` = +20%.
     pub bonus_malus_bps: i32,
-    /// Part de la prime versée à la réserve commune locale.
+    /// Portion of the premium allocated to the local shared reserve.
     pub reserve_contribution_cents: i64,
-    /// Dépenses approuvées et réglées sur la période courante.
+    /// Approved and settled expenses during the current period.
     pub spent_this_period_cents: i64,
     pub updated_at: DateTime<Utc>,
 }
@@ -24,7 +24,7 @@ pub struct Wallet {
 pub struct LedgerEntry {
     pub id: i64,
     pub agent_id: Uuid,
-    /// `credit`, `debit`, `payout`, `refund`.
+    /// `credit`, `debit`, `payout`, or `refund`.
     pub kind: String,
     pub amount_cents: i64,
     pub balance_after_cents: i64,
@@ -41,7 +41,7 @@ pub struct PriceLine {
     pub explanation: String,
 }
 
-/// Décomposition ligne par ligne du prix affiché : rien n'est caché.
+/// Line-by-line breakdown of the displayed price. Nothing is hidden.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PriceQuote {
     pub currency: Currency,

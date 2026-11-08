@@ -37,8 +37,8 @@ pub async fn create(
         req.purpose.as_deref(),
     )?;
 
-    // Un agent sans wallet ne peut pas recevoir de rechargement : on en crée un
-    // avec un solde de démonstration.
+    // An agent without a wallet cannot receive a top-up, so we create one
+    // with a demo balance.
     state
         .db
         .with_tx(|tx| store::wallet::ensure(tx, agent.id, 1_200, 5_000))

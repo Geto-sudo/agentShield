@@ -34,14 +34,14 @@ impl ActionKind {
         }
     }
 
-    /// Seul un achat (ou un abonnement) peut consommer un mandat de dépense.
+    /// Only purchases and subscriptions can consume a spending mandate.
     pub const fn is_spend(self) -> bool {
         matches!(self, ActionKind::Purchase | ActionKind::Subscription)
     }
 }
 
-/// Le « log JSON » qu'un agent envoie quand il veut dépenser.
-/// C'est la seule entrée du garde-fou.
+/// The JSON log submitted by an agent when it wants to spend money.
+/// This is the only input accepted by the guardrail.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProposedAction {
     pub mandate_id: Uuid,
@@ -74,7 +74,7 @@ impl ProposedAction {
     }
 }
 
-/// L'action telle qu'elle est persistée, avec la preuve de décision.
+/// The persisted action, including its decision evidence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionRecord {
     pub id: Uuid,

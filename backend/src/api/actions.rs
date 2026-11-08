@@ -19,7 +19,7 @@ pub struct ActionQuery {
     pub limit: Option<i64>,
 }
 
-/// `POST /api/actions` — le geste central de la démo.
+/// `POST /api/actions` — the central action in the demo.
 pub async fn propose(
     State(state): State<AppState>,
     Json(payload): Json<ProposedAction>,
@@ -80,7 +80,7 @@ pub async fn get_one(
     })))
 }
 
-/// `POST /api/actions/{id}/paypal/order` — refusé si l'action n'est pas approuvée.
+/// `POST /api/actions/{id}/paypal/order` — rejected if the action is not approved.
 pub async fn create_paypal_order(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -93,6 +93,6 @@ pub async fn create_paypal_order(
         "order": order,
         "action": action,
         "mode": state.config.paypal_mode(),
-        "notice": "Commande PayPal Sandbox : aucun argent réel n'est transféré.",
+        "notice": "PayPal Sandbox order: no real money is transferred.",
     })))
 }

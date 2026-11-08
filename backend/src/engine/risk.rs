@@ -6,10 +6,10 @@ use crate::domain::mandate::Mandate;
 
 use super::HistoryWindow;
 
-/// Score de risque 0-100, entièrement déterministe.
+/// Fully deterministic risk score ranging from 0 to 100.
 ///
-/// Le score ne change **jamais** l'issue décidée par les règles strictes : il
-/// sert à trier, à expliquer et à alimenter la prime simulée.
+/// The score never changes the outcome enforced by strict rules.
+/// It is used for prioritization, explanations, and simulated premium calculations.
 pub fn assess(
     action: &ProposedAction,
     mandate: &Mandate,
@@ -18,86 +18,86 @@ pub fn assess(
 ) -> RiskAssessment {
     let mut factors: Vec<RiskFactor> = Vec::new();
 
-    // 1. Poids du montant dans le plafond par transaction (0-25).
+    // 1. Transaction amount relative to the per-transaction limit (0-25).
     if mandate.per_txn_max_cents > 0 {
         let ratio_bp = (action.amount_cents.max(0) * 10_000) / mandate.per_txn_max_cents;
         let points = (ratio_bp.clamp(0, 10_000) * 25 / 10_000) as i32;
         factors.push(RiskFactor {
             code: "AMOUNT_INTENSITY".into(),
-            label: "Part du plafond par transaction consommée".into(),
+            label: "Share of the per-transaction limit consumed".into(),
             points,
         });
     }
 
-    // 2. Franchissement du seuil d'approbation automatique.
+    // 2. Amount exceeds the automatic approval threshold.
     if action.amount_cents > mandate.thresholds().auto_approve_max_cents {
         factors.push(RiskFactor {
             code: "ABOVE_AUTO_APPROVE".into(),
-            label: "Au dessus du seuil d'approbation automatique".into(),
+            label: "Above the automatic approval threshold".into(),
             points: 15,
         });
     }
 
-    // 3. Marchand inconnu pour cet agent.
+    // 3. Merchant not previously seen for this agent.
     if !history.merchant_is_known(&action.merchant) {
         factors.push(RiskFactor {
             code: "NEW_MERCHANT".into(),
-            label: "Marchand jamais vu pour cet agent".into(),
+            label: "Merchant not previously seen for this agent".into(),
             points: 12,
         });
     }
 
-    // 4. Vélocité : un agent qui propose beaucoup en peu de temps.
+    // 4. Velocity: an agent submitting many actions within a short period.
     if history.recent_actions_15min >= 5 {
         factors.push(RiskFactor {
             code: "VELOCITY_HIGH".into(),
-            label: "Plus de 5 actions en 15 minutes".into(),
+            label: "At least 5 actions submitted within 15 minutes".into(),
             points: 20,
         });
     } else if history.recent_actions_15min >= 3 {
         factors.push(RiskFactor {
             code: "VELOCITY_MEDIUM".into(),
-            label: "Plus de 3 actions en 15 minutes".into(),
+            label: "At least 3 actions submitted within 15 minutes".into(),
             points: 10,
         });
     }
 
-    // 5. Consommation cumulée du budget du mandat (0-20).
+    // 5. Cumulative consumption of the mandate budget (0-20).
     if mandate.max_total_cents > 0 {
         let projected = history.committed_cents.max(0) + action.amount_cents.max(0);
         let ratio_bp = (projected * 10_000) / mandate.max_total_cents;
         let points = (ratio_bp.clamp(0, 10_000) * 20 / 10_000) as i32;
         factors.push(RiskFactor {
             code: "BUDGET_CONSUMPTION".into(),
-            label: "Consommation cumulée du budget".into(),
+            label: "Cumulative mandate budget consumption".into(),
             points,
         });
     }
 
-    // 6. Tentative de doublon.
+    // 6. Duplicate action attempt.
     if history.duplicate_action {
         factors.push(RiskFactor {
             code: "DUPLICATE_ATTEMPT".into(),
-            label: "Rejeu d'une action déjà soumise".into(),
+            label: "Attempt to resubmit an already submitted action".into(),
             points: 30,
         });
     }
 
-    // 7. Sinistres ouverts pour cet agent.
+    // 7. Open incidents associated with this agent.
     if history.open_incidents > 0 {
         factors.push(RiskFactor {
             code: "OPEN_INCIDENTS".into(),
-            label: "Sinistre(s) en cours pour cet agent".into(),
+            label: "Open incident(s) associated with this agent".into(),
             points: (history.open_incidents.min(3) * 5) as i32,
         });
     }
 
-    // 8. Heure atypique (entre 00:00 et 06:00 UTC).
+    // 8. Unusual activity time (between 00:00 and 06:00 UTC).
     let hour = now_chrono.hour();
     if hour < 6 {
         factors.push(RiskFactor {
             code: "ODD_HOUR".into(),
-            label: "Action proposée pendant la nuit (UTC)".into(),
+            label: "Action submitted during nighttime hours (UTC)".into(),
             points: 5,
         });
     }
@@ -124,7 +124,7 @@ mod tests {
             id: uuid::Uuid::nil(),
             agent_id: uuid::Uuid::nil(),
             owner_name: "Test".into(),
-            intent: "Casque".into(),
+            intent: "Headphones".into(),
             category: "electronics".into(),
             currency: Currency::Eur,
             max_total_cents: 5_000,
@@ -153,7 +153,7 @@ mod tests {
             currency: Some(Currency::Eur),
             category: "electronics".into(),
             delivery_days: Some(4),
-            description: "Casque".into(),
+            description: "Headphones".into(),
             idempotency_key: None,
             occurred_at: None,
             metadata: None,

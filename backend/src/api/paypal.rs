@@ -31,6 +31,6 @@ pub async fn capture(
         "wallet": outcome.wallet,
         "action": outcome.action,
         "audit": outcome.audit,
-        "notice": "Capture Sandbox : le wallet simulé a été mis à jour, aucun argent réel n'a bougé.",
+        "notice": "Sandbox capture: the simulated wallet has been updated; no real money was transferred.",
     })))
 }

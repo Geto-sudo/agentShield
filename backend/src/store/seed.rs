@@ -1,7 +1,7 @@
-//! Jeu de démonstration.
+//! Demonstration dataset.
 //!
-//! Le seeder utilise la couche `service` : la démo ne peut donc pas créer un
-//! état que l'API elle-même rendrait impossible.
+//! The seeder uses the `service` layer, so the demo cannot create a state
+//! that the API itself would reject.
 
 use chrono::Utc;
 use serde_json::json;
@@ -15,21 +15,23 @@ use crate::error::{ApiError, ApiResult};
 use crate::service;
 use crate::store::{self, Db};
 
-/// Ne fait rien si des agents existent déjà.
+/// Does nothing if agents already exist.
 pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
     let agents = db.with_conn(store::agents::count).map_err(ApiError::from)?;
+
     if agents > 0 {
         return Ok(());
     }
 
-    tracing::info!("base vide : création du jeu de démonstration AgentShield");
+    tracing::info!("empty database: creating the AgentShield demonstration dataset");
 
-    // --- Agent 1 : Atlas Shopper, celui de la démo interactive -----------
+    // --- Agent 1: Atlas Shopper, used in the interactive demo ---------------
+
     let (atlas, _) = service::create_agent(
         db,
         "Atlas Shopper",
         Some("Camille Renard"),
-        Some("Recherche et achète du matériel audio pour son propriétaire."),
+        Some("Searches for and purchases audio equipment for its owner."),
     )?;
 
     let (atlas_mandate, _) = service::create_mandate(
@@ -38,7 +40,7 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
         CreateMandateRequest {
             agent_id: atlas.id,
             owner_name: "Camille Renard".to_string(),
-            intent: "Casque neuf, maximum 50 EUR, livraison sous 5 jours.".to_string(),
+            intent: "New headphones, maximum 50 EUR, delivery within 5 days.".to_string(),
             category: "electronics".to_string(),
             max_total_cents: 20_000,
             currency: Some(Currency::Eur),
@@ -59,12 +61,13 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
     })
     .map_err(ApiError::from)?;
 
-    // --- Agent 2 : Nova Ops, historique déjà chargé ----------------------
+    // --- Agent 2: Nova Ops, with preloaded history ---------------------------
+
     let (nova, _) = service::create_agent(
         db,
         "Nova Ops",
         Some("Camille Renard"),
-        Some("Gère les abonnements logiciels récurrents de l'équipe."),
+        Some("Manages the team's recurring software subscriptions."),
     )?;
 
     let (nova_mandate, _) = service::create_mandate(
@@ -73,7 +76,7 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
         CreateMandateRequest {
             agent_id: nova.id,
             owner_name: "Camille Renard".to_string(),
-            intent: "Abonnements SaaS uniquement, 90 EUR par mois au total, 30 EUR par abonnement."
+            intent: "SaaS subscriptions only, 90 EUR per month in total, 30 EUR per subscription."
                 .to_string(),
             category: "subscription".to_string(),
             max_total_cents: 9_000,
@@ -95,12 +98,13 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
     })
     .map_err(ApiError::from)?;
 
-    // --- Agent 3 : Rogue Agent, compromis ---------------------------------
+    // --- Agent 3: Rogue Agent, compromised -----------------------------------
+
     let (rogue, _) = service::create_agent(
         db,
         "Rogue Agent",
         Some("Camille Renard"),
-        Some("Ancien agent de test conservé pour les scénarios de sinistre."),
+        Some("Legacy test agent retained for incident scenarios."),
     )?;
 
     let (rogue_mandate, _) = service::create_mandate(
@@ -109,7 +113,7 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
         CreateMandateRequest {
             agent_id: rogue.id,
             owner_name: "Camille Renard".to_string(),
-            intent: "Accessoires de bureau, 50 EUR maximum.".to_string(),
+            intent: "Office supplies, maximum 50 EUR.".to_string(),
             category: "office".to_string(),
             max_total_cents: 5_000,
             currency: Some(Currency::Eur),
@@ -130,7 +134,8 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
     })
     .map_err(ApiError::from)?;
 
-    // --- Historique de Nova Ops ------------------------------------------
+    // --- Nova Ops history ----------------------------------------------------
+
     propose_seed(
         db,
         config,
@@ -141,7 +146,7 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
         1_990,
         "subscription",
         None,
-        "Licence annuelle — plan équipe (démonstration)",
+        "Annual license — team plan (demonstration)",
     )?;
 
     propose_seed(
@@ -154,17 +159,18 @@ pub fn seed_demo(db: &Db, config: &Config) -> ApiResult<()> {
         2_500,
         "subscription",
         None,
-        "Abonnement facturation électronique (démonstration)",
+        "Electronic invoicing subscription (demonstration)",
     )?;
 
-    // --- Scénario « action rogue » pour Rogue Agent ----------------------
+    // --- Rogue Agent scenario -----------------------------------------------
+
     service::spawn_rogue_scenario(db, config, rogue.id)?;
 
     tracing::info!(
         atlas_mandate = %atlas_mandate.id,
         nova_mandate = %nova_mandate.id,
         rogue_mandate = %rogue_mandate.id,
-        "jeu de démonstration prêt"
+        "demonstration dataset ready"
     );
 
     Ok(())
@@ -200,5 +206,6 @@ fn propose_seed(
     };
 
     service::propose(db, config, proposed)?;
+
     Ok(())
 }

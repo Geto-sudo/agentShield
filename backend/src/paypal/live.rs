@@ -10,9 +10,9 @@ use super::{
     PayoutRequest,
 };
 
-/// Client réel de l'API PayPal Sandbox (`api-m.sandbox.paypal.com`).
-/// Aucun argent réel n'est manipulé : ce sont des comptes Business/Personal
-/// Sandbox créés pour le hackathon.
+/// Client for the real PayPal Sandbox API (`api-m.sandbox.paypal.com`).
+/// No real money is handled: only Business/Personal Sandbox accounts
+/// created for the hackathon are used.
 pub struct SandboxGateway {
     http: reqwest::Client,
     base_url: String,
@@ -30,7 +30,8 @@ impl SandboxGateway {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
             .build()
-            .map_err(|e| PayPalError::Config(format!("client HTTP : {e}")))?;
+            .map_err(|e| PayPalError::Config(format!("HTTP client: {e}")))?;
+
         Ok(Self {
             http,
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -42,8 +43,9 @@ impl SandboxGateway {
 
     fn cached_token(&self) -> Option<String> {
         let guard = self.token.lock().unwrap_or_else(|e| e.into_inner());
+
         guard.as_ref().and_then(|(token, obtained)| {
-            // Les jetons PayPal vivent ~9 h ; on rafraîchit par sécurité.
+            // PayPal tokens last approximately 9 hours; refresh them earlier as a precaution.
             if obtained.elapsed() < Duration::from_secs(3_000) {
                 Some(token.clone())
             } else {
@@ -74,6 +76,7 @@ impl SandboxGateway {
 
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
+
         if !status.is_success() {
             return Err(PayPalError::Api {
                 status: status.as_u16(),
@@ -82,19 +85,22 @@ impl SandboxGateway {
         }
 
         let parsed: Value = serde_json::from_str(&text)
-            .map_err(|e| PayPalError::Decode(format!("jeton OAuth : {e}")))?;
+            .map_err(|e| PayPalError::Decode(format!("OAuth token: {e}")))?;
+
         let token = parsed
             .get("access_token")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PayPalError::Decode("jeton OAuth absent".into()))?
+            .ok_or_else(|| PayPalError::Decode("OAuth token is missing".into()))?
             .to_string();
 
         self.store_token(token.clone());
+
         Ok(token)
     }
 
     async fn post(&self, path: &str, body: Value) -> Result<Value, PayPalError> {
         let token = self.access_token().await?;
+
         let response = self
             .http
             .post(format!("{}{path}", self.base_url))
@@ -108,12 +114,14 @@ impl SandboxGateway {
 
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
+
         if !status.is_success() {
             return Err(PayPalError::Api {
                 status: status.as_u16(),
                 message: shorten(&text),
             });
         }
+
         serde_json::from_str(&text)
             .map_err(|e| PayPalError::Decode(format!("{e}: {}", shorten(&text))))
     }
@@ -153,6 +161,7 @@ impl PayPalGateway for SandboxGateway {
             .and_then(|links| {
                 links.iter().find_map(|link| {
                     let rel = link.get("rel").and_then(|r| r.as_str()).unwrap_or_default();
+
                     if rel == "approve" || rel == "payer-action" {
                         link.get("href")
                             .and_then(|h| h.as_str())
@@ -235,8 +244,8 @@ impl PayPalGateway for SandboxGateway {
         let body = json!({
             "sender_batch_header": {
                 "sender_batch_id": req.sender_batch_id,
-                "email_subject": "AgentShield Sandbox - resolution de litige",
-                "email_message": "Paiement de demonstration emis par AgentShield (prototype Sandbox). Aucun argent reel.",
+                "email_subject": "AgentShield Sandbox - dispute resolution",
+                "email_message": "Demonstration payment issued by AgentShield (Sandbox prototype). No real money is involved.",
             },
             "items": [{
                 "recipient_type": "EMAIL",
@@ -271,6 +280,7 @@ impl PayPalGateway for SandboxGateway {
 
 fn shorten(text: &str) -> String {
     let flat = text.replace('\n', " ");
+
     if flat.chars().count() <= 400 {
         flat
     } else {

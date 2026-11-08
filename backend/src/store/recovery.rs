@@ -83,7 +83,7 @@ pub fn list_incidents(
     rows.collect()
 }
 
-/// Cherche un sinistre encore ouvert, éventuellement pour un agent donné.
+/// Finds the latest open incident, optionally for a specific agent.
 pub fn latest_open_incident(
     conn: &Connection,
     agent_id: Option<Uuid>,

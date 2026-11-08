@@ -1,15 +1,15 @@
-//! AgentShield — garde-fou de dépenses PayPal pour agents IA.
+//! AgentShield — PayPal spending guardrail for AI agents.
 //!
-//! Prototype Sandbox du PayPal AI Hackathon 2026. Toutes les données sont
-//! simulées et locales : aucun argent réel n'est mobilisé.
+//! Sandbox prototype for the PayPal AI Hackathon 2026. All data is
+//! simulated and stored locally: no real money is involved.
 //!
-//! Organisation :
-//! * [`domain`] — types métier, argent en centimes entiers ;
-//! * [`engine`] — décision déterministe, risque, prime, expert IA ;
-//! * [`store`] — persistance SQLite et chaîne d'audit ;
-//! * [`paypal`] — passerelle Sandbox (réelle ou simulée) ;
-//! * [`service`] — logique métier réutilisée par l'API et le seeder ;
-//! * [`api`] — routes HTTP axum.
+//! Architecture:
+//! * [`domain`] — business types and monetary values stored as integer cents;
+//! * [`engine`] — deterministic decisions, risk assessment, pricing, and AI expert;
+//! * [`store`] — SQLite persistence and audit chain;
+//! * [`paypal`] — PayPal Sandbox gateway (live or simulated);
+//! * [`service`] — business logic shared by the API and the seeder;
+//! * [`api`] — Axum HTTP routes.
 
 pub mod api;
 pub mod config;
@@ -24,15 +24,15 @@ pub mod store;
 pub use config::Config;
 pub use state::AppState;
 
-/// Assemble l'état applicatif complet (base, config, expert, PayPal).
+/// Builds the complete application state (database, configuration, expert, PayPal).
 pub fn build_state(config: Config) -> Result<AppState, String> {
     use std::sync::Arc;
 
     let config = Arc::new(config);
-    let db = store::Db::open(&config.db_path).map_err(|e| format!("ouverture SQLite : {e}"))?;
+    let db = store::Db::open(&config.db_path).map_err(|e| format!("SQLite initialization: {e}"))?;
 
     if config.seed_demo {
-        store::seed::seed_demo(&db, &config).map_err(|e| format!("seed de démonstration : {e}"))?;
+        store::seed::seed_demo(&db, &config).map_err(|e| format!("Demo data seeding: {e}"))?;
     }
 
     let expert = Arc::new(engine::expert::ExpertService::new(&config));
@@ -44,7 +44,7 @@ pub fn build_state(config: Config) -> Result<AppState, String> {
                 config.paypal.client_id.clone().unwrap_or_default(),
                 config.paypal.client_secret.clone().unwrap_or_default(),
             )
-            .map_err(|e| format!("configuration PayPal : {e}"))?,
+            .map_err(|e| format!("PayPal configuration: {e}"))?,
         )
     } else {
         Arc::new(paypal::mock::MockGateway::new())

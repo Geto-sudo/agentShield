@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// Devise d'une opération. Le prototype ne gère que deux devises, ce qui suffit
-/// à démontrer le contrôle « une seule devise par mandat ».
+/// Currency used by a transaction. The prototype supports only two currencies,
+/// which is sufficient to demonstrate the single-currency-per-mandate restriction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Currency {
@@ -25,8 +25,8 @@ impl Currency {
         }
     }
 
-    /// Devise PayPal correspondante (même code ISO, mais nommé explicitement
-    /// pour éviter les chaînes magiques dans le client PayPal).
+    /// Corresponding PayPal currency code (the same ISO code, explicitly named
+    /// to avoid magic strings in the PayPal client).
     pub const fn paypal_code(self) -> &'static str {
         self.as_str()
     }
@@ -54,7 +54,8 @@ pub fn parse_currency(s: &str) -> Option<Currency> {
     s.parse().ok()
 }
 
-/// Rend un montant lisible en français : `6200` -> `"62,00 EUR"`.
+/// Formats an amount in cents using the prototype's French-style display format:
+/// `6200` -> `"62,00 EUR"`.
 pub fn format_cents(cents: i64, currency: Currency) -> String {
     let sign = if cents < 0 { "-" } else { "" };
     let abs = cents.abs();
@@ -67,12 +68,12 @@ pub fn format_cents(cents: i64, currency: Currency) -> String {
     )
 }
 
-/// Conversion centimes -> chaîne décimale attendue par l'API PayPal (`"62.00"`).
+/// Converts cents into the decimal string expected by the PayPal API (`"62.00"`).
 pub fn cents_to_paypal_amount(cents: i64) -> String {
     format!("{}.{:02}", cents / 100, cents % 100)
 }
 
-/// Parse une chaîne décimale PayPal (`"62.00"`) en centimes, sans passer par `f64`.
+/// Parses a PayPal decimal amount (`"62.00"`) into cents without using `f64`.
 pub fn paypal_amount_to_cents(s: &str) -> Option<i64> {
     let s = s.trim();
     if s.is_empty() {

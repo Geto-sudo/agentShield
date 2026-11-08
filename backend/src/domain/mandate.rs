@@ -31,33 +31,33 @@ impl MandateStatus {
     }
 }
 
-/// Le mandat est la seule source d'autorité. Il est fixé par l'humain *avant*
-/// que l'agent propose quoi que ce soit.
+/// The mandate is the only source of authority. It is defined by the human
+/// before the agent proposes any action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mandate {
     pub id: Uuid,
     pub agent_id: Uuid,
     pub owner_name: String,
-    /// Formulation libre du propriétaire, affichée dans l'audit.
+    /// Free-form description provided by the owner and displayed in the audit log.
     pub intent: String,
-    /// Catégorie d'achat autorisée (comparaison insensible à la casse).
+    /// Authorized purchase category (case-insensitive comparison).
     pub category: String,
     pub currency: Currency,
-    /// Plafond cumulé sur la durée du mandat.
+    /// Total spending limit over the mandate's lifetime.
     pub max_total_cents: i64,
-    /// Plafond par transaction.
+    /// Maximum amount allowed per transaction.
     pub per_txn_max_cents: i64,
-    /// En dessous (ou égal), la règle déterministe approuve.
+    /// At or below this amount, the deterministic engine approves the action.
     pub auto_approve_max_cents: i64,
-    /// Au dessus de `auto_approve_max_cents` et jusqu'à cette borne : escalade.
-    /// Au delà : refus.
+    /// Above `auto_approve_max_cents` and up to this limit: escalation.
+    /// Above this limit: rejection.
     pub escalate_until_cents: i64,
-    /// Liste blanche de marchands. Vide = tout marchand non bloqué.
+    /// Merchant allowlist. Empty means any merchant not on the blocklist.
     pub allowed_merchants: Vec<String>,
     pub blocked_merchants: Vec<String>,
-    /// Liste blanche de pays (`FR`, `EU`...). Vide = pas de contrôle.
+    /// Country allowlist (`FR`, `EU`, etc.). Empty means no country restriction.
     pub allowed_countries: Vec<String>,
-    /// Délai de livraison maximal accepté, en jours. `0` = pas de contrôle.
+    /// Maximum accepted delivery time in days. `0` means no restriction.
     pub max_delivery_days: u32,
     pub valid_from: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
@@ -70,7 +70,7 @@ impl Mandate {
         self.status == MandateStatus::Active && now >= self.valid_from && now <= self.valid_until
     }
 
-    /// Les seuils réellement appliqués, bornés par le plafond du mandat.
+    /// Returns the effective thresholds, capped by the mandate's limits.
     pub fn thresholds(&self) -> super::decision::Thresholds {
         super::decision::Thresholds {
             auto_approve_max_cents: self
@@ -82,8 +82,8 @@ impl Mandate {
     }
 }
 
-/// Corps de `POST /api/mandates`. Tous les champs de politique sont optionnels
-/// et retombent sur des valeurs dérivées du plafond total.
+/// Request body for `POST /api/mandates`.
+/// All policy fields are optional and default to values derived from the total spending limit.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateMandateRequest {
     pub agent_id: Uuid,

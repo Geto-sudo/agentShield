@@ -18,10 +18,10 @@ pub struct IncidentQuery {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct SimulateRequest {
-    /// Sinistre précis à instruire.
+    /// Specific incident to investigate.
     #[serde(default)]
     pub incident_id: Option<Uuid>,
-    /// Crée d'abord un nouveau scénario « action rogue » pour cet agent.
+    /// First creates a new "rogue action" scenario for this agent.
     #[serde(default)]
     pub agent_id: Option<Uuid>,
 }
@@ -50,16 +50,16 @@ pub async fn list_payouts(State(state): State<AppState>) -> ApiResult<Json<Value
     Ok(Json(json!({
         "payouts": payouts,
         "mode": state.config.paypal_mode(),
-        "notice": "Payouts Sandbox de démonstration : aucune couverture réelle.",
+        "notice": "Demo Sandbox payouts: no real insurance coverage is provided.",
     })))
 }
 
 /// `POST /api/recovery/simulate`
 ///
-/// Instruit un sinistre : le garde-fou est rejoué sur le log, l'expert IA rend un
-/// verdict structuré, puis un Payout Sandbox peut être émis depuis la réserve
-/// commune locale. Le montant du payout est **calculé par le code**, jamais par
-/// le modèle.
+/// Investigates an incident: the guardrail is replayed against the log,
+/// the AI expert produces a structured verdict, and a Sandbox payout may
+/// be issued from the local shared reserve.
+/// The payout amount is **calculated by the code**, never by the model.
 pub async fn simulate(
     State(state): State<AppState>,
     Json(req): Json<SimulateRequest>,
@@ -84,6 +84,6 @@ pub async fn simulate(
 
     Ok(Json(json!({
         "outcome": outcome,
-        "notice": "Simulation de récupération : ce n'est pas un produit d'assurance.",
+        "notice": "Recovery simulation: this is not an insurance product.",
     })))
 }

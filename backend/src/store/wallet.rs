@@ -20,7 +20,7 @@ fn row_to_wallet(row: &Row<'_>) -> rusqlite::Result<Wallet> {
     })
 }
 
-/// Crée le wallet s'il n'existe pas, avec une prime de base et un solde de démo.
+/// Creates the wallet if it does not exist, with a base premium and demo balance.
 pub fn ensure(
     conn: &Connection,
     agent_id: Uuid,
@@ -73,7 +73,7 @@ pub fn ensure(
             "credit",
             initial_balance_cents,
             initial_balance_cents,
-            "Solde initial de démonstration",
+            "Initial demonstration balance",
             None,
         )?;
     }
@@ -93,7 +93,7 @@ pub fn get(conn: &Connection, agent_id: Uuid) -> rusqlite::Result<Option<Wallet>
     }
 }
 
-/// Applique un mouvement de solde et écrit la ligne de journal correspondante.
+/// Applies a balance movement and writes the corresponding ledger entry.
 pub fn move_balance(
     conn: &Connection,
     agent_id: Uuid,
@@ -200,9 +200,8 @@ pub fn ledger(conn: &Connection, agent_id: Uuid, limit: i64) -> rusqlite::Result
     })?;
     rows.collect()
 }
-
 // --------------------------------------------------------------------------
-// Réserve commune locale
+// Local shared reserve
 // --------------------------------------------------------------------------
 
 pub fn reserve_balance(conn: &Connection) -> rusqlite::Result<i64> {
@@ -211,7 +210,7 @@ pub fn reserve_balance(conn: &Connection) -> rusqlite::Result<i64> {
     })
 }
 
-/// Applique un mouvement sur la réserve commune et le journalise.
+/// Applies a movement to the shared reserve and records it in the ledger.
 pub fn reserve_move(
     conn: &Connection,
     delta_cents: i64,

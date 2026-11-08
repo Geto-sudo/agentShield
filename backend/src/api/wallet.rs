@@ -48,7 +48,7 @@ pub async fn quote(
     Ok(Json(json!({ "wallet": wallet, "quote": quote })))
 }
 
-/// Crée un checkout PayPal Sandbox destiné à recharger le wallet simulé.
+/// Creates a PayPal Sandbox checkout to top up the simulated wallet.
 pub async fn topup(
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
@@ -65,7 +65,7 @@ pub async fn topup(
 
     Ok(Json(json!({
         "order": order,
-        "notice": "Rechargement Sandbox : capturez la commande pour créditer le wallet simulé.",
+        "notice": "Sandbox top-up: capture the order to credit the simulated wallet.",
     })))
 }
 

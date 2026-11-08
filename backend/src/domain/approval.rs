@@ -32,8 +32,8 @@ impl ApprovalStatus {
     }
 }
 
-/// Une escalade en attente de décision humaine. Elle expire : une action non
-/// confirmée ne devient jamais approuvée par défaut.
+/// A pending request for human approval. It expires: an unconfirmed action
+/// is never approved automatically.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Approval {
     pub id: Uuid,

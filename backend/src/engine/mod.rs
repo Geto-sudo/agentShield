@@ -1,27 +1,27 @@
-//! Moteur de décision d'AgentShield.
+//! AgentShield decision engine.
 //!
-//! Séparation stricte des responsabilités :
-//! * [`guardrail`] et [`risk`] sont **déterministes** et font autorité ;
-//! * [`pricing`] explique un prix à partir de règles fixes ;
-//! * [`expert`] peut *expliquer* et *qualifier*, jamais fixer un montant.
+//! Strict separation of responsibilities:
+//! * [`guardrail`] and [`risk`] are deterministic and authoritative;
+//! * [`pricing`] explains a price using fixed rules;
+//! * [`expert`] may explain and qualify, but never determine an amount.
 
 pub mod expert;
 pub mod guardrail;
 pub mod pricing;
 pub mod risk;
 
-/// Fenêtre d'historique injectée dans le moteur pour rester une fonction pure.
+/// History window injected into the engine to keep it a pure function.
 #[derive(Debug, Clone, Default)]
 pub struct HistoryWindow {
-    /// Somme des actions déjà approuvées ou escaladées pour ce mandat.
+    /// Total amount of actions already approved or escalated under this mandate.
     pub committed_cents: i64,
-    /// Nombre d'actions proposées par cet agent dans les 15 dernières minutes.
+    /// Number of actions proposed by this agent in the last 15 minutes.
     pub recent_actions_15min: i64,
-    /// Marchands déjà vus pour cet agent (minuscules).
+    /// Merchants previously seen for this agent (lowercase).
     pub known_merchants: Vec<String>,
-    /// Une action portant la même clé d'idempotence existe déjà.
+    /// An action with the same idempotency key already exists.
     pub duplicate_action: bool,
-    /// Nombre de sinistres ouverts pour cet agent.
+    /// Number of open incidents for this agent.
     pub open_incidents: i64,
 }
 

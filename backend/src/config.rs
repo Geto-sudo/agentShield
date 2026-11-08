@@ -1,17 +1,17 @@
 use std::env;
 
-/// Configuration lue depuis l'environnement (`.env` supporté).
+/// Configuration loaded from the environment (supports `.env`).
 #[derive(Debug, Clone)]
 pub struct Config {
     pub addr: String,
     pub db_path: String,
     pub seed_demo: bool,
-    /// Seuil d'approbation automatique par défaut, en centimes.
+    /// Default automatic approval threshold, in cents.
     pub default_auto_approve_max_cents: i64,
     pub approval_ttl_minutes: i64,
-    /// URL publique utilisée pour les retours de checkout PayPal.
+    /// Public URL used for PayPal checkout return URLs.
     pub public_base_url: String,
-    /// Adresse (fictive) qui reçoit les payouts Sandbox dans la démo.
+    /// Fake address receiving Sandbox payouts in the demo.
     pub owner_payout_email: String,
     pub openai: OpenAiConfig,
     pub paypal: PayPalConfig,
@@ -30,7 +30,7 @@ pub struct PayPalConfig {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub base_url: String,
-    /// Force le mode simulé même si des identifiants sont présents.
+    /// Force mock mode even when credentials are available.
     pub force_mock: bool,
 }
 
@@ -83,7 +83,7 @@ impl Config {
                 .unwrap_or(false)
     }
 
-    /// Mode PayPal exposé dans les réponses API et l'interface.
+    /// PayPal mode exposed in API responses and the user interface.
     pub fn paypal_mode(&self) -> &'static str {
         if self.paypal_live_enabled() {
             "live-sandbox"

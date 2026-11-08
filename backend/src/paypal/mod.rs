@@ -1,11 +1,11 @@
-//! Intégration PayPal Sandbox.
+//! PayPal Sandbox integration.
 //!
-//! Deux implémentations du même trait :
-//! * [`live::SandboxGateway`] — vrais appels `api-m.sandbox.paypal.com` ;
-//! * [`mock::MockGateway`] — réponse déterministe quand aucune clé n'est
-//!   configurée, pour que la démo fonctionne hors ligne.
+//! Two implementations of the same trait:
+//! * [`live::SandboxGateway`] — real calls to `api-m.sandbox.paypal.com`;
+//! * [`mock::MockGateway`] — simulated responses when no credentials are
+//!   configured, allowing the demo to run offline.
 //!
-//! Le mode utilisé est toujours renvoyé dans la réponse HTTP.
+//! The selected mode is always included in the HTTP response.
 
 pub mod live;
 pub mod mock;
@@ -19,7 +19,7 @@ pub struct CreateOrderRequest {
     pub amount_cents: i64,
     pub currency: Currency,
     pub description: String,
-    /// Référence interne (id de l'action) transmise à PayPal.
+    /// Internal reference (action ID) sent to PayPal.
     pub reference_id: String,
     pub return_url: String,
     pub cancel_url: String,
@@ -61,22 +61,25 @@ pub struct CreatedPayout {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PayPalError {
-    #[error("configuration PayPal incomplète : {0}")]
+    #[error("Incomplete PayPal configuration: {0}")]
     Config(String),
-    #[error("transport PayPal : {0}")]
+
+    #[error("PayPal transport error: {0}")]
     Transport(String),
-    #[error("PayPal a répondu {status} : {message}")]
+
+    #[error("PayPal returned {status}: {message}")]
     Api { status: u16, message: String },
-    #[error("réponse PayPal inattendue : {0}")]
+
+    #[error("Unexpected PayPal response: {0}")]
     Decode(String),
 }
 
 #[async_trait]
 pub trait PayPalGateway: Send + Sync {
-    /// `mock` ou `live-sandbox`.
+    /// Returns `mock` or `live-sandbox`.
     fn mode(&self) -> &'static str;
 
-    /// `true` si de vrais appels réseau sont effectués.
+    /// Returns `true` when real network requests are made.
     fn is_live(&self) -> bool {
         self.mode() != "mock"
     }
