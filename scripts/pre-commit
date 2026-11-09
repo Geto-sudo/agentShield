@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo
+echo "AgentShield : vérifications avant commit"
+echo
+
+"$ROOT_DIR/scripts/check.sh"
+
+echo
+echo "Vérifications réussies. Le commit peut continuer."

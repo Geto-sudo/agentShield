@@ -1,176 +1,343 @@
-# AgentShield — backend Rust
+# 🛡️ AgentShield
 
-Garde-fou de dépenses PayPal pour agents IA.
-**Prototype Sandbox** du *PayPal AI Hackathon 2026*.
+### Giving AI agents the freedom to act — without giving up human control.
 
-> Avant qu'un agent IA crée un paiement PayPal, AgentShield vérifie un mandat
-> défini par l'humain, garde la preuve de la décision et approuve, escalade ou
-> refuse l'action.
+**AgentShield is a Sandbox prototype for controlling and auditing AI agent spending.**
 
-Ce dépôt contient **uniquement le backend** : une API JSON en Rust. Le front est
-développé séparément et consomme `/api/*` (CORS ouvert en développement).
+Built for the **PayPal AI Hackathon 2026**.
 
 ---
 
-## Ce qui est implémenté
+## The Problem
 
-| Bloc | État | Détail |
-| --- | --- | --- |
-| Mandat | ✅ | plafond total, plafond par transaction, seuils auto/escalade, catégorie, marchands autorisés/bloqués, pays, délai de livraison, fenêtre de validité |
-| Log JSON d'action | ✅ | schéma typé (`POST /api/actions`), clé d'idempotence |
-| Décision | ✅ | `APPROVE` / `ESCALATE` / `REFUSE`, 14 règles strictes, score de risque 0-100, explication en français |
-| Escalade | ✅ | approbation humaine explicite, expiration, refus impossible à contourner |
-| Preuve | ✅ | chaîne d'audit SHA-256 append-only + endpoint de vérification |
-| PayPal Sandbox | ✅ | `Orders` create + capture, `Payouts` ; mode `mock` automatique sans clés |
-| Wallet | ✅ | solde débité à la capture, journal (ledger), prime + bonus-malus + réserve commune |
-| Récupération | ✅ | scénario « action rogue », verdict expert structuré, payout Sandbox plafonné |
-| Expert IA | ✅ | OpenAI (`gpt-4o-mini` par défaut) + repli déterministe ; le LLM ne fixe jamais un montant |
-| SQLite | ✅ | schéma SQL embarqué, une seule source de vérité |
-| Tests | ✅ | 27 tests unitaires + 8 tests d'intégration HTTP |
+AI agents are becoming increasingly capable of performing tasks autonomously. As they interact with online services, they may also need to make purchases and initiate payments.
 
-Limite assumée : les agents, soldes, sinistres et remboursements sont **simulés**.
-Aucun argent réel, aucune couverture réelle.
+But giving an AI agent the ability to spend money raises an important question:
+
+**How can users allow AI agents to make payments without losing control over their spending?**
+
+Traditional payment systems are designed around human-initiated transactions. Autonomous agents introduce a different challenge: every proposed payment must be checked against the user's intentions, limits, and permissions before it proceeds.
 
 ---
 
-## Démarrage
+## Our Solution
 
-Prérequis : Rust (toolchain `stable`), aucune dépendance système.
+AgentShield introduces a spending-control layer between an AI agent and the PayPal payment flow.
+
+Before a proposed payment can proceed through the AgentShield integration, the system checks it against a spending mandate defined by the human owner.
+
+Based on the mandate and the configured thresholds, AgentShield produces one of three decisions:
+
+| Decision | Meaning |
+|---|---|
+| 🟢 **APPROVE** | The proposed action satisfies the rules and can proceed. |
+| 🟠 **ESCALATE** | The action requires explicit human approval before proceeding. |
+| 🔴 **REFUSE** | The action violates a strict rule or exceeds the permitted limits. |
+
+Every decision is recorded, creating an auditable history of the agent's proposed spending activity.
+
+**The principle is simple: AI agents can act autonomously, but their spending remains subject to human-defined rules.**
+
+---
+
+## How It Works
+
+The AgentShield workflow follows these steps:
+
+1. **Define a mandate** — The human owner configures the agent's spending permissions and limits.
+2. **Propose an expense** — An AI agent submits a payment proposal through the AgentShield backend.
+3. **Evaluate the action** — The decision engine checks the proposal against the mandate and its strict rules.
+4. **Make a decision** — AgentShield approves, escalates, or refuses the proposed action.
+5. **Request human approval when necessary** — Escalated actions wait for an explicit human decision.
+6. **Proceed through PayPal Sandbox** — Approved actions can continue through the integrated PayPal Sandbox payment flow.
+7. **Record the evidence** — The action and its decision are stored in the audit history.
+
+The decision engine is deterministic for its strict rules and spending thresholds. The AI expert can provide additional structured analysis, but it never determines payment amounts or overrides strict spending rules.
+
+---
+
+## Application Features
+
+AgentShield includes six main frontend screens.
+
+### 1. Dashboard
+
+A central overview of the system, with key activity indicators and recent agent actions.
+
+### 2. Spending Mandates
+
+Create and manage spending mandates that define what an agent is allowed to do.
+
+Mandates can include spending limits, categories, merchant restrictions, and other conditions.
+
+### 3. Propose an Expense
+
+Submit a proposed expense and receive an AgentShield decision based on the applicable mandate.
+
+### 4. Human Approvals
+
+Review actions that require explicit human approval before they can proceed.
+
+### 5. Activity History
+
+Consult the recorded actions and their decisions to understand what agents have proposed and what happened.
+
+### 6. Simulated Wallet
+
+View the internal AgentShield wallet information, including:
+
+- Available balance
+- Spending during the current period
+- Premium
+- Bonus-malus adjustment
+- Shared reserve contribution
+- Transaction history
+
+The wallet and reserve are part of the prototype's simulated financial model. They are distinct from a user's real PayPal balance.
+
+---
+
+## Architecture
+
+AgentShield uses a Python frontend connected to a Rust backend through a JSON REST API.
+
+```text
+                 HUMAN OWNER
+                      |
+                      v
+             STREAMLIT FRONTEND
+                      |
+        +-------------+-------------+
+        |             |             |
+        v             v             v
+     Dashboard     Mandates     Approvals
+        |             |             |
+        +-------------+-------------+
+                      |
+                      v
+              PYTHON API CLIENT
+                      |
+                HTTP / JSON
+                      |
+                      v
+                RUST BACKEND
+                      |
+        +-------------+-------------+
+        |             |             |
+        v             v             v
+   Decision       SQLite       Audit Chain
+    Engine        Storage       SHA-256
+        |
+        v
+   PAYPAL SANDBOX
+   Orders / Capture
+```
+
+### Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Python, Streamlit |
+| Data handling | Pandas |
+| Backend | Rust |
+| Backend framework | Axum |
+| API communication | HTTP / JSON |
+| Database | SQLite |
+| Payment integration | PayPal Sandbox |
+| AI expert | OpenAI API with deterministic fallback |
+| Audit integrity | SHA-256 hash chain |
+
+---
+
+## Project Structure
+
+```text
+projectnana/
+│
+├── main.py
+│
+├── styles/
+│   └── theme.py
+│
+├── components/
+│   ├── sidebar.py
+│   ├── header.py
+│   ├── metric_card.py
+│   ├── status_badge.py
+│   └── data_table.py
+│
+├── app_pages/
+│   ├── dashboard.py
+│   ├── mandates.py
+│   ├── propose_expense.py
+│   ├── approvals.py
+│   ├── history.py
+│   └── wallet.py
+│
+├── data/
+│   ├── backend_client.py
+│   ├── data_source.py
+│   └── demo_data.py
+│
+└── backend/
+    ├── Cargo.toml
+    ├── Cargo.lock
+    ├── .env.example
+    ├── migrations/
+    ├── src/
+    ├── tests/
+    └── README.md
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+Install the following tools:
+
+- Python
+- Rust with the stable toolchain
+- Git
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Geto-sudo/projectnana.git
+cd projectnana
+```
+
+### 2. Set Up the Python Environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Install the frontend dependencies:
+
+```bash
+pip install streamlit pandas
+```
+
+### 3. Start the Rust Backend
+
+Open a terminal:
 
 ```bash
 cd backend
-cp .env.example .env      # optionnel : tout fonctionne sans clés
+```
+
+If you do not already have a local `.env` file, create one from the example:
+
+```bash
+[ -f .env ] || cp .env.example .env
+```
+
+Start the backend:
+
+```bash
 cargo run
 ```
 
+The backend listens on:
+
 ```text
-AgentShield — http://127.0.0.1:8080
-SQLite      : data/agentshield.db
-PayPal      : mock
-Expert      : deterministic-fallback
+http://127.0.0.1:8080
 ```
 
-Au premier lancement, une base de démonstration est créée (3 agents, 3 mandats,
-1 sinistre ouvert, un historique). `GET /` renvoie la liste des routes,
-`GET /api/health` l'état du service.
-
-Vérification rapide :
+Check its health:
 
 ```bash
 curl http://127.0.0.1:8080/api/health
-curl http://127.0.0.1:8080/api/mandates
 ```
 
-> Windows : `scripts\run.ps1` fait la même chose avec un environnement propre.
+### 4. Start the Streamlit Frontend
 
----
-
-## Le parcours en une requête
+Open a second terminal from the project root:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/actions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "mandate_id": "<id du mandat>",
-    "merchant": "TechStore SAS",
-    "merchant_country": "FR",
-    "amount_cents": 6200,
-    "currency": "EUR",
-    "category": "electronics",
-    "delivery_days": 4,
-    "description": "Casque audio sans fil"
-  }'
+source .venv/bin/activate
+streamlit run main.py
 ```
 
-Réponse (extrait) :
+The frontend will display the local Streamlit application address in the terminal.
 
-```json
-{
-  "decision": "REFUSE",
-  "risk": { "score": 63, "band": "high" },
-  "reasons": ["Budget dépassé : 62,00 EUR demandés pour un plafond de 50,00 EUR sur ce mandat."],
-  "explanation": "Achat de 62,00 EUR chez « TechStore SAS » proposé par l'agent, mandat « … ». …",
-  "audit": { "seq": 11, "hash": "d92a40b6…" },
-  "next_steps": ["Aucun checkout PayPal n'est créé.", "…"]
-}
-```
-
-Avec `3800` → `APPROVE`, avec `4500` → `ESCALATE` (une approbation est créée).
+**Important:** The backend must be running before the frontend can retrieve live application data.
 
 ---
 
-## Politique de décision
+## PayPal Sandbox
 
-Ordre d'évaluation, **entièrement déterministe** :
+AgentShield integrates with the PayPal Sandbox payment flow.
 
-1. **Règles strictes** — si une seule échoue : `REFUSE`. Aucune exception, aucun LLM.
-   `MANDATE_ACTIVE`, `MANDATE_PERIOD`, `ACTION_KIND`, `CURRENCY_MATCH`,
-   `AMOUNT_POSITIVE`, `AMOUNT_PER_TXN`, `AMOUNT_TOTAL_BUDGET`, `CATEGORY_ALLOWED`,
-   `MERCHANT_NOT_BLOCKED`, `MERCHANT_ALLOWED`, `COUNTRY_ALLOWED`,
-   `DELIVERY_WINDOW`, `IDEMPOTENCY`.
-2. **Seuils** — toutes les règles passent :
-   - `montant ≤ auto_approve_max_cents` → `APPROVE`
-   - `auto_approve_max_cents < montant ≤ escalate_until_cents` → `ESCALATE`
-   - au delà → `REFUSE` (filet de sécurité)
+The backend supports:
 
-Le score de risque ne change jamais l'issue : il informe, trie et alimente la prime.
+- PayPal Orders creation
+- PayPal Orders capture
+- PayPal Payouts
+- A simulated mock mode when external credentials are not configured
 
----
+The PayPal Sandbox integration is intended for demonstration and testing.
 
-## Configuration
+**No real money is involved in the hackathon prototype.**
 
-Tout est optionnel ; sans clés, le service tourne en mode simulé complet.
-
-| Variable | Défaut | Rôle |
-| --- | --- | --- |
-| `AGENTSHIELD_ADDR` | `127.0.0.1:8080` | adresse d'écoute |
-| `AGENTSHIELD_DB` | `data/agentshield.db` | chemin SQLite (`:memory:` accepté) |
-| `AGENTSHIELD_SEED` | `true` | jeu de démonstration au premier lancement |
-| `AGENTSHIELD_AUTO_APPROVE_MAX_CENTS` | `4000` | seuil auto par défaut (40 €) |
-| `AGENTSHIELD_APPROVAL_TTL_MINUTES` | `30` | durée de vie d'une escalade |
-| `AGENTSHIELD_PUBLIC_URL` | `http://127.0.0.1:8080` | URLs de retour checkout |
-| `AGENTSHIELD_PAYOUT_EMAIL` | `sandbox-owner@example.com` | destinataire des payouts de démo |
-| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | active le vrai Sandbox PayPal |
-| `PAYPAL_BASE_URL` | `https://api-m.sandbox.paypal.com` | API PayPal |
-| `PAYPAL_FORCE_MOCK` | `false` | force le mode simulé |
-| `OPENAI_API_KEY` | — | active l'expert IA réel |
-| `OPENAI_MODEL` | `gpt-4o-mini` | modèle utilisé |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | compatible Azure/proxy |
-
-`GET /api/health` expose le mode effectif (`mock` / `live-sandbox`,
-`deterministic-fallback` / `openai`).
+For detailed backend configuration and PayPal integration instructions, see [`backend/README.md`](backend/README.md).
 
 ---
 
-## Documentation
+## Security and Auditability
 
-- [`docs/API.md`](docs/API.md) — référence complète des routes, avec exemples.
-- [`docs/openapi.yaml`](docs/openapi.yaml) — spécification OpenAPI 3.1.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — composants, flux, garanties.
-- [`docs/DECISIONS.md`](docs/DECISIONS.md) — pourquoi ces choix techniques.
-- [`docs/DEMO.md`](docs/DEMO.md) — script de démo en 2 minutes.
-- [`samples/`](samples) — payloads JSON prêts à l'emploi.
+AgentShield is designed around explicit spending permissions and traceable decisions.
 
----
+Its backend includes:
 
-## Tests
+- Human-defined spending mandates
+- Strict deterministic spending rules
+- Explicit human approval for escalated actions
+- Idempotency support for action submissions
+- Persistent action history
+- An append-only SHA-256 audit chain
+- An audit verification endpoint
 
-```bash
-cd backend
-cargo test          # 27 unitaires + 8 intégrations HTTP
-cargo clippy --all-targets
-```
-
-Les tests d'intégration utilisent une base `:memory:` et la passerelle PayPal
-simulée : aucun réseau, aucun compte.
+The AI expert is not responsible for setting payment amounts or overriding the strict decision rules.
 
 ---
 
-## Formulation à garder
+## Prototype Scope and Limitations
 
-> « AgentShield est un prototype Sandbox de contrôle et de traçabilité des
-> dépenses d'agents IA. »
+AgentShield is a **Sandbox prototype**, not a production financial service.
 
-À ne pas dire : qu'il s'agit d'une assurance réglementée, qu'il protège des
-utilisateurs réels, ou qu'il bloque des paiements qui ne passent pas par
-l'intégration AgentShield + PayPal.
+The following elements are simulated:
+
+- AI agent identities and activity
+- Internal wallet balances
+- Claims and reimbursements
+- Shared reserve mechanisms
+
+PayPal operations use the Sandbox environment or the simulated mock gateway.
+
+The prototype does not provide regulated insurance coverage, does not handle real customer funds, and does not control payments made outside the AgentShield + PayPal integration.
+
+---
+
+## Backend Documentation
+
+For the complete technical documentation of the Rust backend, including API routes, decision rules, environment variables, and test instructions, see:
+
+**[Backend README](backend/README.md)**
+
+---
+
+## Hackathon Project
+
+**Event:** PayPal AI Hackathon 2026
+**Project:** AgentShield
+**Category:** AI-powered payment control and spending governance
+
+> AgentShield gives AI agents room to act while keeping spending decisions under human-defined control.
+
+---
+
+*Built as a Sandbox prototype for the PayPal AI Hackathon 2026.*
