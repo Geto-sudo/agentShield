@@ -45,7 +45,7 @@ impl SandboxGateway {
         let guard = self.token.lock().unwrap_or_else(|e| e.into_inner());
 
         guard.as_ref().and_then(|(token, obtained)| {
-            // PayPal tokens last approximately 9 hours; refresh them earlier as a precaution.
+            // Refresh the token early as a precaution.
             if obtained.elapsed() < Duration::from_secs(3_000) {
                 Some(token.clone())
             } else {
@@ -89,7 +89,8 @@ impl SandboxGateway {
 
         let token = parsed
             .get("access_token")
-            .and_then(|v| v.as_str())
+            .and_then(Value::as_str)
+            .filter(|token| !token.trim().is_empty())
             .ok_or_else(|| PayPalError::Decode("OAuth token is missing".into()))?
             .to_string();
 
@@ -157,15 +158,13 @@ impl PayPalGateway for SandboxGateway {
 
         let approve_url = value
             .get("links")
-            .and_then(|l| l.as_array())
+            .and_then(Value::as_array)
             .and_then(|links| {
                 links.iter().find_map(|link| {
-                    let rel = link.get("rel").and_then(|r| r.as_str()).unwrap_or_default();
+                    let rel = link.get("rel").and_then(Value::as_str).unwrap_or_default();
 
                     if rel == "approve" || rel == "payer-action" {
-                        link.get("href")
-                            .and_then(|h| h.as_str())
-                            .map(str::to_string)
+                        link.get("href").and_then(Value::as_str).map(str::to_string)
                     } else {
                         None
                     }
@@ -175,12 +174,12 @@ impl PayPalGateway for SandboxGateway {
         Ok(CreatedOrder {
             id: value
                 .get("id")
-                .and_then(|v| v.as_str())
+                .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
             status: value
                 .get("status")
-                .and_then(|v| v.as_str())
+                .and_then(Value::as_str)
                 .unwrap_or("CREATED")
                 .to_string(),
             approve_url,
@@ -196,43 +195,50 @@ impl PayPalGateway for SandboxGateway {
             )
             .await?;
 
+        // Read the first capture returned by PayPal.
+        // Missing capture data remains missing; it is never treated as success.
         let capture = value
             .get("purchase_units")
-            .and_then(|p| p.as_array())
+            .and_then(Value::as_array)
             .and_then(|units| units.first())
             .and_then(|unit| unit.get("payments"))
-            .and_then(|p| p.get("captures"))
-            .and_then(|c| c.as_array())
+            .and_then(|payments| payments.get("captures"))
+            .and_then(Value::as_array)
             .and_then(|captures| captures.first());
 
         let capture_id = capture
-            .and_then(|c| c.get("id"))
-            .and_then(|v| v.as_str())
+            .and_then(|capture| capture.get("id"))
+            .and_then(Value::as_str)
             .map(str::to_string);
 
         let amount_cents = capture
-            .and_then(|c| c.get("amount"))
-            .and_then(|a| a.get("value"))
-            .and_then(|v| v.as_str())
+            .and_then(|capture| capture.get("amount"))
+            .and_then(|amount| amount.get("value"))
+            .and_then(Value::as_str)
             .and_then(crate::domain::money::paypal_amount_to_cents);
 
         let currency = capture
-            .and_then(|c| c.get("amount"))
-            .and_then(|a| a.get("currency_code"))
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<Currency>().ok());
+            .and_then(|capture| capture.get("amount"))
+            .and_then(|amount| amount.get("currency_code"))
+            .and_then(Value::as_str)
+            .and_then(|code| code.parse::<Currency>().ok());
+
+        // Use the status of the capture itself, not the order status.
+        // Do not default a missing status to COMPLETED.
+        let capture_status = capture
+            .and_then(|capture| capture.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
 
         Ok(CapturedOrder {
+            // A missing order ID must not silently become the expected ID.
             id: value
                 .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or(order_id)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
                 .to_string(),
-            status: value
-                .get("status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("COMPLETED")
-                .to_string(),
+            status: capture_status,
             capture_id,
             amount_cents,
             currency,
@@ -265,12 +271,12 @@ impl PayPalGateway for SandboxGateway {
         Ok(CreatedPayout {
             batch_id: header
                 .get("payout_batch_id")
-                .and_then(|v| v.as_str())
+                .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
             status: header
                 .get("batch_status")
-                .and_then(|v| v.as_str())
+                .and_then(Value::as_str)
                 .unwrap_or("PENDING")
                 .to_string(),
             raw: value,

@@ -593,6 +593,8 @@ pub async fn capture_order(
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::NotFound(format!("PayPal order {paypal_order_id}")))?;
 
+    // Idempotency: do not capture an order that has already been recorded
+    // as captured in our database.
     if order.status == OrderStatus::Captured {
         let wallet = db
             .with_conn(|c| match order.action_id {
@@ -619,31 +621,54 @@ pub async fn capture_order(
         });
     }
 
+    // Ask PayPal to capture the order.
     let captured = paypal
         .capture_order(&order.paypal_order_id)
         .await
         .map_err(|e| ApiError::PayPal(e.to_string()))?;
 
-    let success = matches!(captured.status.as_str(), "COMPLETED" | "APPROVED");
+    // Validate the capture before changing any local financial state.
+    let capture_id_is_valid = captured
+        .capture_id
+        .as_deref()
+        .map(|id| !id.trim().is_empty())
+        .unwrap_or(false);
 
-    if !success {
-        let _ = db.with_tx(|tx| {
-            store::orders::mark_failed(tx, order.id, &captured.status)?;
-            store::audit::append(
-                tx,
-                "paypal.order.failed",
-                &order.paypal_order_id,
-                &json!({ "status": captured.status }),
-            )?;
-            Ok(())
-        });
+    // The mock gateway does not currently return the amount and currency
+    // in its CapturedOrder structure. Strictly validate these fields for
+    // the real PayPal Sandbox gateway.
+    let order_id_is_valid = !paypal.is_live() || captured.id == order.paypal_order_id;
 
+    let amount_is_valid = !paypal.is_live() || captured.amount_cents == Some(order.amount_cents);
+
+    let currency_is_valid = !paypal.is_live() || captured.currency == Some(order.currency);
+
+    // APPROVED is not a successful capture. The capture itself must be
+    // explicitly marked COMPLETED.
+    let status_is_valid = captured.status == "COMPLETED";
+
+    let capture_is_valid = status_is_valid
+        && capture_id_is_valid
+        && order_id_is_valid
+        && amount_is_valid
+        && currency_is_valid;
+
+    if !capture_is_valid {
+        // Do not mark the order as definitively failed here.
+        // An incomplete or inconsistent response does not prove that
+        // PayPal did not capture the payment.
+        // Most importantly, do not update the wallet or settle the action.
         return Err(ApiError::PayPal(format!(
-            "Capture unsuccessful: status {}.",
-            captured.status
+            "Capture validation failed: status={}, capture_id_present={}, order_id_valid={}, amount_valid={}, currency_valid={}. No local wallet update was performed.",
+            captured.status,
+            capture_id_is_valid,
+            order_id_is_valid,
+            amount_is_valid,
+            currency_is_valid,
         )));
     }
 
+    // Only proceed after the capture has passed validation.
     let action = match order.action_id {
         Some(id) => db
             .with_conn(|c| store::actions::get(c, id))
@@ -656,6 +681,9 @@ pub async fn capture_order(
         .map(|a| a.agent_id)
         .ok_or_else(|| ApiError::Conflict("Order has no associated agent.".to_string()))?;
 
+    // Update the order, wallet, action, and audit log in one database
+    // transaction so that a database failure cannot partially apply
+    // these local changes.
     let (wallet, proof) = db
         .with_tx(|tx| {
             store::orders::mark_captured(tx, order.id, captured.capture_id.as_deref(), Utc::now())?;
@@ -690,8 +718,8 @@ pub async fn capture_order(
             )?;
 
             if order.purpose == OrderPurpose::Purchase {
-                if let Some(a) = &action {
-                    store::actions::mark_settled(tx, a.id)?;
+                if let Some(action) = &action {
+                    store::actions::mark_settled(tx, action.id)?;
                 }
             }
 
