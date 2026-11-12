@@ -152,9 +152,9 @@ AgentShield uses a Python frontend connected to a Rust backend through a JSON RE
 ## Project Structure
 
 ```text
-projectnana/
+agentShield/
 │
-├── main.py
+├── main.py                 # Streamlit entry point
 │
 ├── styles/
 │   └── theme.py
@@ -179,14 +179,19 @@ projectnana/
 │   ├── data_source.py
 │   └── demo_data.py
 │
-└── backend/
-    ├── Cargo.toml
-    ├── Cargo.lock
-    ├── .env.example
-    ├── migrations/
-    ├── src/
-    ├── tests/
-    └── README.md
+├── backend/                # Rust (Axum) API, decision engine, SQLite, audit chain
+│   ├── Cargo.toml
+│   ├── Cargo.lock
+│   ├── .env.example
+│   ├── migrations/
+│   ├── src/
+│   ├── tests/
+│   └── README.md
+│
+├── docs/                   # API reference, OpenAPI spec, architecture, decisions, demo script
+├── samples/                # Example JSON payloads for every API scenario
+├── scripts/                # check.sh (CI), PowerShell run / demo / verify / reset helpers
+└── .github/workflows/      # CI: Rust fmt, clippy, tests, release build, Python checks
 ```
 
 ---
@@ -204,8 +209,8 @@ Install the following tools:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Geto-sudo/projectnana.git
-cd projectnana
+git clone https://github.com/Geto-sudo/agentShield.git
+cd agentShield
 ```
 
 ### 2. Set Up the Python Environment
@@ -265,6 +270,60 @@ streamlit run main.py
 The frontend will display the local Streamlit application address in the terminal.
 
 **Important:** The backend must be running before the frontend can retrieve live application data.
+
+### 5. Try the API (optional)
+
+With the backend running, the seeded data already contains a mandate for *Atlas Shopper*: "New headphones, maximum 50 EUR, delivery within 5 days". These commands submit three purchases and show the three possible decisions:
+
+```bash
+MANDATE_ID=$(curl -s http://127.0.0.1:8080/api/mandates | python3 -c "import sys,json; print(next(m['id'] for m in json.load(sys.stdin)['mandates'] if m['max_total_cents'] == 20000))")
+
+for AMOUNT in 3800 4500 6200; do
+  curl -s -X POST http://127.0.0.1:8080/api/actions \
+    -H "Content-Type: application/json" \
+    -d "{\"mandate_id\":\"$MANDATE_ID\",\"merchant\":\"TechStore SAS\",\"merchant_country\":\"FR\",\"amount_cents\":$AMOUNT,\"currency\":\"EUR\",\"category\":\"electronics\",\"delivery_days\":4,\"description\":\"Wireless headphones\",\"kind\":\"purchase\"}" \
+    | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['decision'], '-', r['reasons'][0])"
+done
+```
+
+Expected output:
+
+```text
+APPROVE - All strict mandate rules are satisfied, and 38,00 EUR is below the automatic approval threshold of 40,00 EUR.
+ESCALATE - Amount between 40,00 EUR and 50,00 EUR: the action requires explicit owner confirmation.
+REFUSE - Budget exceeded: 62,00 EUR requested against a mandate limit of 50,00 EUR.
+```
+
+Verify the audit chain:
+
+```bash
+curl -s http://127.0.0.1:8080/api/audit/verify
+```
+
+More payloads are available in [`samples/`](samples/), and a full walkthrough is in [`docs/DEMO.md`](docs/DEMO.md).
+
+### Windows (PowerShell)
+
+Helper scripts are provided in [`scripts/`](scripts/):
+
+| Script | Purpose |
+|---|---|
+| `scripts/run.ps1` | Start the backend (`-Release` for an optimized build) |
+| `scripts/demo.ps1` | Replay the full scenario against a running server: three decisions, a confirmed escalation, a Sandbox checkout and an audit verification |
+| `scripts/verify.ps1` | Build, run the tests and the end-to-end demo in one go |
+| `scripts/reset-db.ps1` | Delete the local SQLite database (`backend/data`); the demo data is re-seeded on the next start |
+
+---
+
+## Running the Checks
+
+The same checks run in CI on every push and pull request:
+
+```bash
+bash scripts/check.sh
+```
+
+It verifies Rust formatting (`cargo fmt`), lints (`cargo clippy -D warnings`), runs the Rust test suite, builds the release binary, byte-compiles the Python frontend and checks that Streamlit and Pandas are installed.
 
 ---
 
@@ -327,6 +386,16 @@ The prototype does not provide regulated insurance coverage, does not handle rea
 For the complete technical documentation of the Rust backend, including API routes, decision rules, environment variables, and test instructions, see:
 
 **[Backend README](backend/README.md)**
+
+---
+
+## Repository Branches
+
+| Branch | Content |
+|---|---|
+| `main` | The complete, integrated application: Streamlit frontend, Rust backend, PayPal Sandbox integration, docs and CI. |
+| `integration-backend` | The branch `main` was taken from. |
+| `backend` | Backend-only line of work. It also contains **Ed25519 signing of every audit entry**, which is not merged into `main` yet: merging it requires resolving conflicts in the backend. |
 
 ---
 
