@@ -323,7 +323,26 @@ def find_mandate(api: str, hint: str) -> str:
     return mandates[0]["id"]
 
 
+def load_backend_env() -> None:
+    """Read OPENAI_* settings from backend/.env so keys live in one place.
+
+    Variables already set in the environment always win.
+    """
+    env_file = Path(__file__).resolve().parent.parent / "backend" / ".env"
+    if not env_file.is_file():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.strip().strip('"').strip("'")
+        if key.startswith("OPENAI_") and value and key not in os.environ:
+            os.environ[key] = value
+
+
 def main() -> None:
+    load_backend_env()
     parser = argparse.ArgumentParser(description="AI shopping agent that pays only through AgentShield.")
     parser.add_argument("task", nargs="?", default=DEFAULT_TASK)
     parser.add_argument("--base-url", default=os.environ.get("AGENTSHIELD_URL", "http://127.0.0.1:8080"))

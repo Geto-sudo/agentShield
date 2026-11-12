@@ -320,10 +320,9 @@ More payloads are available in [`samples/`](samples/), and a full walkthrough is
 
 [`agent/shopping_agent.py`](agent/shopping_agent.py) is a real AI agent that shops on its own but **cannot pay without AgentShield**. It can search a small product catalog, and its only way to spend money is to submit the purchase to the AgentShield API. A refused purchase cannot become a PayPal checkout, so the agent has to adapt.
 
-It uses only the Python standard library. With an OpenAI key, an LLM drives the agent through function calling:
+It uses only the Python standard library. With an OpenAI key, an LLM drives the agent through function calling. The agent reads `OPENAI_API_KEY` (and `OPENAI_MODEL`) from `backend/.env`, the same git-ignored file the backend uses, unless they are already set in your shell:
 
 ```bash
-export OPENAI_API_KEY=sk-...
 python agent/shopping_agent.py "Find me good wireless headphones and buy them"
 ```
 
