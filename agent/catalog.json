@@ -1,0 +1,46 @@
+[
+  {
+    "id": "hp-studio-pro",
+    "name": "Studio Pro wireless headphones",
+    "merchant": "TechStore SAS",
+    "merchant_country": "FR",
+    "price_eur": 62.0,
+    "rating": 4.8,
+    "delivery_days": 4,
+    "category": "electronics",
+    "tags": "headphones wireless noise-cancelling over-ear"
+  },
+  {
+    "id": "hp-airbeat",
+    "name": "AirBeat ANC headphones",
+    "merchant": "AudioLab",
+    "merchant_country": "FR",
+    "price_eur": 45.0,
+    "rating": 4.6,
+    "delivery_days": 3,
+    "category": "electronics",
+    "tags": "headphones wireless noise-cancelling"
+  },
+  {
+    "id": "hp-pulse",
+    "name": "Pulse wireless headphones",
+    "merchant": "TechStore SAS",
+    "merchant_country": "FR",
+    "price_eur": 38.0,
+    "rating": 4.4,
+    "delivery_days": 4,
+    "category": "electronics",
+    "tags": "headphones wireless on-ear"
+  },
+  {
+    "id": "hp-bassmax",
+    "name": "BassMax wireless headphones",
+    "merchant": "SoundDepot",
+    "merchant_country": "FR",
+    "price_eur": 29.0,
+    "rating": 4.1,
+    "delivery_days": 2,
+    "category": "electronics",
+    "tags": "headphones wireless"
+  }
+]

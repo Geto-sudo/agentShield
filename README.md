@@ -152,6 +152,7 @@ AgentShield uses a Python frontend connected to a Rust backend through a JSON RE
 | API communication | HTTP / JSON |
 | Database | SQLite |
 | Payment integration | PayPal Sandbox |
+| AI shopping agent | OpenAI function calling (`agent/shopping_agent.py`) with an offline planner |
 | AI expert | OpenAI API with deterministic fallback |
 | Audit integrity | SHA-256 hash chain |
 
@@ -186,6 +187,10 @@ agentShield/
 │   ├── backend_client.py
 │   ├── data_source.py
 │   └── demo_data.py
+│
+├── agent/                  # AI shopping agent that can only pay through AgentShield
+│   ├── shopping_agent.py
+│   └── catalog.json
 │
 ├── backend/                # Rust (Axum) API, decision engine, SQLite, audit chain
 │   ├── Cargo.toml
@@ -310,6 +315,38 @@ curl -s http://127.0.0.1:8080/api/audit/verify
 ```
 
 More payloads are available in [`samples/`](samples/), and a full walkthrough is in [`docs/DEMO.md`](docs/DEMO.md).
+
+### 6. Run the AI shopping agent
+
+[`agent/shopping_agent.py`](agent/shopping_agent.py) is a real AI agent that shops on its own but **cannot pay without AgentShield**. It can search a small product catalog, and its only way to spend money is to submit the purchase to the AgentShield API. A refused purchase cannot become a PayPal checkout, so the agent has to adapt.
+
+It uses only the Python standard library. With an OpenAI key, an LLM drives the agent through function calling:
+
+```bash
+export OPENAI_API_KEY=sk-...
+python agent/shopping_agent.py "Find me good wireless headphones and buy them"
+```
+
+Without a key (or with `--offline`), a deterministic planner follows the same policy, so the demo always runs. `--auto-confirm` plays the owner and confirms escalations; without it, the agent waits for you to confirm in the Human approvals screen.
+
+```bash
+python agent/shopping_agent.py --offline --auto-confirm
+```
+
+```text
+[user] Find me good wireless headphones and buy them.
+[agent] asks AgentShield: Studio Pro wireless headphones at TechStore SAS, EUR 62.00
+[AgentShield] REFUSE - Budget exceeded: 62,00 EUR requested against a mandate limit of 50,00 EUR.
+[agent] refused on price: looking for a cheaper option that fits the mandate
+[agent] asks AgentShield: AirBeat ANC headphones at AudioLab, EUR 45.00
+[AgentShield] ESCALATE - Amount between 40,00 EUR and 50,00 EUR: the action requires explicit owner confirmation.
+[owner] confirms the purchase from the AgentShield dashboard (demo: --auto-confirm)
+[AgentShield] approval is confirmed
+[PayPal] mock order MOCK-ORDER-43373F7664BD487B8 created
+[agent] Done. AirBeat ANC headphones from AudioLab for EUR 45.00 was approved by AgentShield. PayPal checkout: https://www.sandbox.paypal.com/checkoutnow?token=MOCK-ORDER-...
+```
+
+With PayPal Sandbox credentials in `backend/.env`, the same run creates a real Sandbox order and the link opens the PayPal Sandbox checkout.
 
 ### Windows (PowerShell)
 

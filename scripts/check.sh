@@ -59,7 +59,7 @@ echo "[6/7] Vérifications Python"
 
 cd "$ROOT_DIR"
 
-python -m compileall -q main.py app_pages components data styles \
+python -m compileall -q main.py app_pages components data styles agent \
     || fail "Une erreur de syntaxe Python a été détectée."
 
 python -c "import streamlit, pandas; print('Streamlit:', streamlit.__version__); print('Pandas:', pandas.__version__)" \
