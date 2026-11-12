@@ -8,6 +8,14 @@ Built for the **PayPal AI Hackathon 2026**.
 
 ---
 
+## 🎬 Presentation Video
+
+[![AgentShield presentation video](media/AgentShield_presentation_thumbnail.jpg)](media/AgentShield_presentation.mp4)
+
+**[▶ Watch the presentation (1 min 47, English)](media/AgentShield_presentation.mp4)**
+
+---
+
 ## The Problem
 
 AI agents are becoming increasingly capable of performing tasks autonomously. As they interact with online services, they may also need to make purchases and initiate payments.
@@ -188,6 +196,7 @@ agentShield/
 │   ├── tests/
 │   └── README.md
 │
+├── media/                  # Presentation video and thumbnail
 ├── docs/                   # API reference, OpenAPI spec, architecture, decisions, demo script
 ├── samples/                # Example JSON payloads for every API scenario
 ├── scripts/                # check.sh (CI), PowerShell run / demo / verify / reset helpers
